@@ -76,6 +76,7 @@ class TableReader(BaseReader):
         top_k_per_candidate: int = 3,
         return_no_answer: bool = False,
         max_seq_len: int = 512,
+        batch_size: int = 1,
         use_auth_token: Optional[Union[str, bool]] = None,
         devices: Optional[List[Union[str, torch.device]]] = None,
     ):
@@ -147,6 +148,7 @@ class TableReader(BaseReader):
                 model_version=model_version,
                 tokenizer=tokenizer,
                 max_seq_len=max_seq_len,
+                batch_size=batch_size,
                 use_auth_token=use_auth_token,
             )
         elif config.architectures[0] == "TapasForScoredQA":
@@ -192,17 +194,13 @@ class TableReader(BaseReader):
         return self.table_encoder.predict(query=query, documents=documents, top_k=top_k)
 
     def predict_batch(
-        self,
-        queries: List[str],
-        documents: Union[List[Document], List[List[Document]]],
-        top_k: Optional[int] = None,
-        batch_size: Optional[int] = None,
+        self, queries: List[str], documents: Union[List[Document], List[List[Document]]], top_k: Optional[int] = None
     ):
         """
         Use loaded TableQA model to find answers for the supplied queries in the supplied Documents
         of content_type ``'table'``.
 
-        Returns dictionary containing query and list of Answer objects sorted by (desc.) score.
+        Returns dictionary containing query and list of Answer objects sorted by (descending) score.
         WARNING: The answer scores are not reliable, as they are always extremely high, even if
         a question cannot be answered by a given table.
 
@@ -220,33 +218,21 @@ class TableReader(BaseReader):
         :param documents: Single list of Documents or list of lists of Documents in which to search for the answers.
                           Documents should be of content_type ``'table'``.
         :param top_k: The maximum number of answers to return per query.
-        :param batch_size: Not applicable.
         """
-        results: Dict = {"queries": queries, "answers": []}
+        if top_k is None:
+            top_k = self.top_k
 
-        single_doc_list = False
-        # Docs case 1: single list of Documents -> apply each query to all Documents
         if len(documents) > 0 and isinstance(documents[0], Document):
             single_doc_list = True
-            for query in queries:
-                for doc in documents:
-                    if not isinstance(doc, Document):
-                        raise HaystackError(f"doc was of type {type(doc)}, but expected a Document.")
-                    preds = self.predict(query=query, documents=[doc], top_k=top_k)
-                    results["answers"].append(preds["answers"])
+        else:
+            single_doc_list = False
 
-        # Docs case 2: list of lists of Documents -> apply each query to corresponding list of Documents, if queries
-        # contains only one query, apply it to each list of Documents
-        elif len(documents) > 0 and isinstance(documents[0], list):
-            if len(queries) == 1:
-                queries = queries * len(documents)
-            if len(queries) != len(documents):
-                raise HaystackError("Number of queries must be equal to number of provided Document lists.")
-            for query, cur_docs in zip(queries, documents):
-                if not isinstance(cur_docs, list):
-                    raise HaystackError(f"cur_docs was of type {type(cur_docs)}, but expected a list of Documents.")
-                preds = self.predict(query=query, documents=cur_docs, top_k=top_k)
-                results["answers"].append(preds["answers"])
+        inputs = self._flatten_inputs(queries, documents)
+
+        results: Dict = {"queries": queries, "answers": []}
+        for query, docs in zip(inputs["queries"], inputs["docs"]):
+            preds = self.table_encoder.predict(query=query, documents=docs, top_k=top_k)
+            results["answers"].append(preds["answers"])
 
         # Group answers by question in case of multiple queries and single doc list
         if single_doc_list and len(queries) > 1:
@@ -258,6 +244,48 @@ class TableReader(BaseReader):
             results["answers"] = answers
 
         return results
+
+    @staticmethod
+    def _flatten_inputs(queries: List[str], documents: Union[List[Document], List[List[Document]]]) -> Dict[str, List]:
+        """Flatten (and copy) the queries and documents into lists of equal length.
+
+        - If you provide a list containing a single query...
+            - ... and a single list of Documents, the query will be applied to each Document individually.
+            - ... and a list of lists of Documents, the query will be applied to each list of Documents and the Answers
+              will be aggregated per Document list.
+
+        - If you provide a list of multiple queries...
+            - ... and a single list of Documents, each query will be applied to each Document individually.
+            - ... and a list of lists of Documents, each query will be applied to its corresponding list of Documents
+              and the Answers will be aggregated per query-Document pair.
+
+        :param queries: Single query string or list of queries.
+        :param documents: Single list of Documents or list of lists of Documents in which to search for the answers.
+                          Documents should be of content_type ``'table'``.
+        """
+        # Docs case 1: single list of Documents -> apply each query to all Documents
+        inputs = {"queries": [], "docs": []}
+        if len(documents) > 0 and isinstance(documents[0], Document):
+            for query in queries:
+                for doc in documents:
+                    if not isinstance(doc, Document):
+                        raise HaystackError(f"doc was of type {type(doc)}, but expected a Document.")
+                    inputs["queries"].append(query)
+                    inputs["docs"].append([doc])
+
+        # Docs case 2: list of lists of Documents -> apply each query to corresponding list of Documents, if queries
+        # contains only one query, apply it to each list of Documents
+        elif len(documents) > 0 and isinstance(documents[0], list):
+            if len(queries) == 1:
+                queries = queries * len(documents)
+            if len(queries) != len(documents):
+                raise HaystackError("Number of queries must be equal to number of provided Document lists.")
+            for query, cur_docs in zip(queries, documents):
+                if not isinstance(cur_docs, list):
+                    raise HaystackError(f"cur_docs was of type {type(cur_docs)}, but expected a list of Documents.")
+                inputs["queries"].append(query)
+                inputs["docs"].append(cur_docs)
+        return inputs
 
 
 class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
@@ -400,6 +428,7 @@ class _TapasEncoder:
         model_version: Optional[str] = None,
         tokenizer: Optional[str] = None,
         max_seq_len: int = 512,
+        batch_size: int = 1,
         use_auth_token: Optional[Union[str, bool]] = None,
     ):
         self.model = TapasForQuestionAnswering.from_pretrained(
@@ -416,7 +445,11 @@ class _TapasEncoder:
         self.max_seq_len = max_seq_len
         self.device = device
         self.pipeline = _TableQuestionAnsweringPipeline(
-            task="table-question-answering", model=self.model, tokenizer=self.tokenizer, framework="pt"
+            task="table-question-answering",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            framework="pt",
+            batch_size=batch_size,
         )
 
     def predict(self, query: str, documents: List[Document], top_k: int) -> Dict:
