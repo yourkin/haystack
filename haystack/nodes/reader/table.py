@@ -292,11 +292,20 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
     def _calculate_answer_score(
         self, logits: torch.Tensor, inputs: Dict, answer_coordinates: List[List[Tuple[int, int]]]
     ) -> List[np.float64]:
-        # Calculate answer score
+        # TODO Look at original implementation for calculating cell probabilities
+        #  here: https://github.com/google-research/tapas/blob/569a3c31451d941165bd10783f73f494406b3906/tapas/models/tapas_classifier_model.py#L324-L356
+        #  - There is a chance that the temperature scaling was missed
+        #  - Softmax is no good, b/c it's possible no tokens should be a part of the answer (and there is no "no answer" prediction)
+        #  - Not sure where the current implementation came from, worth checking the original PR for TAPAS
+
+        # TODO I think transformers forgot to multiply by temp to scale back down the logits.
+        #  - Starting clue: https://github.com/google-research/tapas/blob/569a3c31451d941165bd10783f73f494406b3906/tapas/models/tapas_classifier_model.py#L315-L318
+        #  - http: // proceedings.mlr.press / v124 / wang20b / wang20b.pdf
+        scaled_logits = logits * self.model.config.temperature
+
         # Values over 88.72284 will overflow when passed through exponential, so logits are truncated.
-        copy_logits = logits.clone()
-        copy_logits[copy_logits < -88.7] = -88.7
-        token_probabilities = 1 / (1 + np.exp(-copy_logits)) * inputs["attention_mask"]
+        # scaled_logits[scaled_logits < -88.7] = -88.7  # Might not need since numpy handles it
+        token_probabilities = 1 / (1 + np.exp(-scaled_logits)) * inputs["attention_mask"]
         token_types = [
             "segment_ids",
             "column_ids",
@@ -312,7 +321,7 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
         column_ids = inputs["token_type_ids"][:, :, token_types.index("column_ids")]
 
         answer_scores = []
-        num_batch = copy_logits.shape[0]
+        num_batch = logits.shape[0]
         assert (
             num_batch == len(answer_coordinates) == inputs["input_ids"].shape[0]
         ), "Ensure all inputs have same batch dimension"
@@ -373,18 +382,21 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
         if self.type == "tapas":
             if self.aggregate:
                 logits, logits_agg = outputs[:2]
+                copy_logits = logits.clone()
                 predictions = self.tokenizer.convert_logits_to_predictions(
-                    inputs, logits, logits_agg, cell_classification_threshold=0.5
+                    inputs, copy_logits, logits_agg, cell_classification_threshold=0.01
                 )
                 answer_coordinates_batch, agg_predictions = predictions
                 aggregators = {i: self.model.config.aggregation_labels[pred] for i, pred in enumerate(agg_predictions)}
             else:
                 logits = outputs[0]
+                copy_logits = logits.clone()
                 predictions = self.tokenizer.convert_logits_to_predictions(
-                    inputs, logits, cell_classification_threshold=0.5
+                    inputs, copy_logits, cell_classification_threshold=0.01
                 )
                 answer_coordinates_batch = predictions[0]
                 aggregators = {}
+            # TODO Add sorting
             answer_scores = self._calculate_answer_score(logits, inputs, answer_coordinates_batch)
             answers = []
             for index, coordinates in enumerate(answer_coordinates_batch):
