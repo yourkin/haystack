@@ -148,12 +148,14 @@ def test_table_reader_aggregation(table_reader_and_param):
 
     query = "How tall are all mountains on average?"
     prediction = table_reader.predict(query=query, documents=[Document(content=table, content_type="table")])
+    assert prediction["answers"][0].score == pytest.approx(1.0)
     assert prediction["answers"][0].answer == "8609.2 m"
     assert prediction["answers"][0].meta["aggregation_operator"] == "AVERAGE"
     assert prediction["answers"][0].meta["answer_cells"] == ["8848m", "8,611 m", "8 586m", "8 516 m", "8,485m"]
 
     query = "How tall are all mountains together?"
     prediction = table_reader.predict(query=query, documents=[Document(content=table, content_type="table")])
+    assert prediction["answers"][0].score == pytest.approx(1.0)
     assert prediction["answers"][0].answer == "43046.0 m"
     assert prediction["answers"][0].meta["aggregation_operator"] == "SUM"
     assert prediction["answers"][0].meta["answer_cells"] == ["8848m", "8,611 m", "8 586m", "8 516 m", "8,485m"]

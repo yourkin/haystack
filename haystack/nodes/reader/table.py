@@ -290,11 +290,11 @@ class TableReader(BaseReader):
 
 class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
     def _calculate_answer_score(
-        self, logits: torch.Tensor, inputs: BatchEncoding, answer_coordinates: List[Tuple[int, int]]
-    ) -> float:
+        self, logits: torch.Tensor, inputs: Dict, answer_coordinates: List[List[Tuple[int, int]]]
+    ) -> List[np.float64]:
         # Calculate answer score
-        copy_logits = logits.clone()
         # Values over 88.72284 will overflow when passed through exponential, so logits are truncated.
+        copy_logits = logits.clone()
         copy_logits[copy_logits < -88.7] = -88.7
         token_probabilities = 1 / (1 + np.exp(-copy_logits)) * inputs["attention_mask"]
         token_types = [
@@ -307,17 +307,25 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
             "numeric_relations",
         ]
 
-        segment_ids = inputs["token_type_ids"][0, :, token_types.index("segment_ids")].tolist()
-        column_ids = inputs["token_type_ids"][0, :, token_types.index("column_ids")].tolist()
-        row_ids = inputs["token_type_ids"][0, :, token_types.index("row_ids")].tolist()
-        all_cell_probabilities = self.tokenizer._get_mean_cell_probs(
-            token_probabilities[0].tolist(), segment_ids, row_ids, column_ids
-        )
-        # _get_mean_cell_probs seems to index cells by (col, row). DataFrames are, however, indexed by (row, col).
-        all_cell_probabilities = {(row, col): prob for (col, row), prob in all_cell_probabilities.items()}
-        answer_cell_probabilities = [all_cell_probabilities[coord] for coord in answer_coordinates]
+        segment_ids = inputs["token_type_ids"][:, :, token_types.index("segment_ids")]
+        row_ids = inputs["token_type_ids"][:, :, token_types.index("row_ids")]
+        column_ids = inputs["token_type_ids"][:, :, token_types.index("column_ids")]
 
-        return np.mean(answer_cell_probabilities)
+        answer_scores = []
+        num_batch = copy_logits.shape[0]
+        assert (
+            num_batch == len(answer_coordinates) == inputs["input_ids"].shape[0]
+        ), "Ensure all inputs have same batch dimension"
+        for i in range(num_batch):
+            cell_coords_to_prob = self.tokenizer._get_mean_cell_probs(
+                token_probabilities[i].tolist(), segment_ids[i].tolist(), row_ids[i].tolist(), column_ids[i].tolist()
+            )
+            # _get_mean_cell_probs seems to index cells by (col, row). DataFrames are, however, indexed by (row, col).
+            all_cell_probabilities = {(row, col): prob for (col, row), prob in cell_coords_to_prob.items()}
+            answer_cell_probabilities = [all_cell_probabilities[coord] for coord in answer_coordinates[i]]
+            answer_scores.append(np.mean(answer_cell_probabilities))
+
+        return answer_scores
 
     @staticmethod
     def _aggregate_answers(agg_operator: Literal["COUNT", "SUM", "AVERAGE"], answer_cells: List[str]) -> str:
@@ -377,6 +385,7 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                 )
                 answer_coordinates_batch = predictions[0]
                 aggregators = {}
+            answer_scores = self._calculate_answer_score(logits, inputs, answer_coordinates_batch)
             answers = []
             for index, coordinates in enumerate(answer_coordinates_batch):
                 cells = [table.iat[coordinate] for coordinate in coordinates]
@@ -386,7 +395,7 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                 else:
                     answer_str = self._aggregate_answers(aggregator, cells)
                 answer_offsets = _calculate_answer_offsets(coordinates, table)
-                current_score = self._calculate_answer_score(logits, inputs, coordinates)
+                current_score = answer_scores[index]
                 answer = Answer(
                     answer=answer_str,
                     type="extractive",
