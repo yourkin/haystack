@@ -7,8 +7,9 @@ from haystack.schema import Document, Answer
 from haystack.pipelines.base import Pipeline
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci", "tapas_scored"], indirect=True)
-def test_table_reader(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
+def test_table_reader(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     data = {
         "actors": ["brad pitt", "leonardo di caprio", "george clooney"],
         "age": ["58", "47", "60"],
@@ -19,13 +20,16 @@ def test_table_reader(table_reader):
 
     query = "When was Di Caprio born?"
     prediction = table_reader.predict(query=query, documents=[Document(content=table, content_type="table")])
+    scores = {"tapas_small": 1.0, "rci": -6.5301, "tapas_scored": 0.50568}
+    assert prediction["answers"][0].score == pytest.approx(scores[param], rel=1e-3)
     assert prediction["answers"][0].answer == "11 november 1974"
     assert prediction["answers"][0].offsets_in_context[0].start == 7
     assert prediction["answers"][0].offsets_in_context[0].end == 8
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_table_reader_batch_single_query_single_doc_list(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_table_reader_batch_single_query_single_doc_list(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     data = {
         "actors": ["brad pitt", "leonardo di caprio", "george clooney"],
         "age": ["58", "47", "60"],
@@ -43,8 +47,9 @@ def test_table_reader_batch_single_query_single_doc_list(table_reader):
     assert len(prediction["answers"]) == 1  # Predictions for 5 docs
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_table_reader_batch_single_query_multiple_doc_lists(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_table_reader_batch_single_query_multiple_doc_lists(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     data = {
         "actors": ["brad pitt", "leonardo di caprio", "george clooney"],
         "age": ["58", "47", "60"],
@@ -64,8 +69,9 @@ def test_table_reader_batch_single_query_multiple_doc_lists(table_reader):
     assert len(prediction["answers"]) == 1  # Predictions for 1 collection of docs
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_table_reader_batch_multiple_queries_single_doc_list(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_table_reader_batch_multiple_queries_single_doc_list(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     data = {
         "actors": ["brad pitt", "leonardo di caprio", "george clooney"],
         "age": ["58", "47", "60"],
@@ -86,8 +92,9 @@ def test_table_reader_batch_multiple_queries_single_doc_list(table_reader):
     assert len(prediction["answers"]) == 2  # Predictions for 2 queries
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_table_reader_batch_multiple_queries_multiple_doc_lists(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_table_reader_batch_multiple_queries_multiple_doc_lists(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     data = {
         "actors": ["brad pitt", "leonardo di caprio", "george clooney"],
         "age": ["58", "47", "60"],
@@ -108,8 +115,9 @@ def test_table_reader_batch_multiple_queries_multiple_doc_lists(table_reader):
     assert len(prediction["answers"]) == 2  # Predictions for 2 collections of documents
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_table_reader_in_pipeline(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_table_reader_in_pipeline(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     pipeline = Pipeline()
     pipeline.add_node(table_reader, "TableReader", ["Query"])
     data = {
@@ -129,8 +137,9 @@ def test_table_reader_in_pipeline(table_reader):
     assert prediction["answers"][0].offsets_in_context[0].end == 8
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_base"], indirect=True)
-def test_table_reader_aggregation(table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_base"], indirect=True)
+def test_table_reader_aggregation(table_reader_and_param):
+    table_reader, param = table_reader_and_param
     data = {
         "Mountain": ["Mount Everest", "K2", "Kangchenjunga", "Lhotse", "Makalu"],
         "Height": ["8848m", "8,611 m", "8 586m", "8 516 m", "8,485m"],
@@ -150,8 +159,9 @@ def test_table_reader_aggregation(table_reader):
     assert prediction["answers"][0].meta["answer_cells"] == ["8848m", "8,611 m", "8 586m", "8 516 m", "8,485m"]
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_table_without_rows(caplog, table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_table_without_rows(caplog, table_reader_and_param):
+    table_reader, param = table_reader_and_param
     # empty DataFrame
     table = pd.DataFrame()
     document = Document(content=table, content_type="table", id="no_rows")
@@ -161,8 +171,9 @@ def test_table_without_rows(caplog, table_reader):
         assert len(predictions["answers"]) == 0
 
 
-@pytest.mark.parametrize("table_reader", ["tapas_small", "rci"], indirect=True)
-def test_text_document(caplog, table_reader):
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+def test_text_document(caplog, table_reader_and_param):
+    table_reader, param = table_reader_and_param
     document = Document(content="text", id="text_doc")
     with caplog.at_level(logging.WARNING):
         predictions = table_reader.predict(query="test", documents=[document])
