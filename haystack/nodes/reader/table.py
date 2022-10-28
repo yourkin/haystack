@@ -415,7 +415,7 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                     Answer(
                         answer="",
                         type="extractive",
-                        # score=no_answer_score,  # FIXME
+                        score=0.0,  # TODO Calculate proper no answer score
                         context=None,
                         offsets_in_context=[Span(start=0, end=0)],
                         offsets_in_document=[Span(start=0, end=0)],
