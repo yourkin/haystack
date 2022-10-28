@@ -75,7 +75,7 @@ class TableReader(BaseReader):
         top_k: int = 10,
         top_k_per_candidate: int = 3,
         return_no_answer: bool = False,
-        max_seq_len: int = 256,
+        max_seq_len: int = 512,
         use_auth_token: Optional[Union[str, bool]] = None,
         devices: Optional[List[Union[str, torch.device]]] = None,
     ):
@@ -265,9 +265,10 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
         self, logits: torch.Tensor, inputs: BatchEncoding, answer_coordinates: List[Tuple[int, int]]
     ) -> float:
         # Calculate answer score
+        copy_logits = logits.clone()
         # Values over 88.72284 will overflow when passed through exponential, so logits are truncated.
-        logits[logits < -88.7] = -88.7
-        token_probabilities = 1 / (1 + np.exp(-logits)) * inputs.attention_mask
+        copy_logits[copy_logits < -88.7] = -88.7
+        token_probabilities = 1 / (1 + np.exp(-copy_logits)) * inputs["attention_mask"]
         token_types = [
             "segment_ids",
             "column_ids",
@@ -278,9 +279,9 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
             "numeric_relations",
         ]
 
-        segment_ids = inputs.token_type_ids[0, :, token_types.index("segment_ids")].tolist()
-        column_ids = inputs.token_type_ids[0, :, token_types.index("column_ids")].tolist()
-        row_ids = inputs.token_type_ids[0, :, token_types.index("row_ids")].tolist()
+        segment_ids = inputs["token_type_ids"][0, :, token_types.index("segment_ids")].tolist()
+        column_ids = inputs["token_type_ids"][0, :, token_types.index("column_ids")].tolist()
+        row_ids = inputs["token_type_ids"][0, :, token_types.index("row_ids")].tolist()
         all_cell_probabilities = self.tokenizer._get_mean_cell_probs(
             token_probabilities[0].tolist(), segment_ids, row_ids, column_ids
         )
@@ -333,12 +334,9 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
         inputs = model_outputs["model_inputs"]
         table = model_outputs["table"]
         outputs = model_outputs["outputs"]
-        inputs.to("cpu")
         if self.type == "tapas":
             if self.aggregate:
                 logits, logits_agg = outputs[:2]
-                logits.to("cpu")
-                logits_agg.to("cpu")
                 predictions = self.tokenizer.convert_logits_to_predictions(
                     inputs, logits, logits_agg, cell_classification_threshold=0.5
                 )
@@ -346,7 +344,6 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                 aggregators = {i: self.model.config.aggregation_labels[pred] for i, pred in enumerate(agg_predictions)}
             else:
                 logits = outputs[0]
-                logits.to("cpu")
                 predictions = self.tokenizer.convert_logits_to_predictions(
                     inputs, logits, cell_classification_threshold=0.5
                 )
@@ -402,7 +399,7 @@ class _TapasEncoder:
         model_name_or_path: str = "google/tapas-base-finetuned-wtq",
         model_version: Optional[str] = None,
         tokenizer: Optional[str] = None,
-        max_seq_len: int = 256,
+        max_seq_len: int = 512,
         use_auth_token: Optional[Union[str, bool]] = None,
     ):
         self.model = TapasForQuestionAnswering.from_pretrained(
@@ -427,10 +424,8 @@ class _TapasEncoder:
         table_documents = _check_documents(documents)
         for document in table_documents:
             table: pd.DataFrame = document.content
-            model_inputs = self.pipeline.preprocess({"query": query, "table": table})
-            with torch.no_grad():
-                model_outputs = self.pipeline._forward(model_inputs)
-            current_answer = self.pipeline.postprocess(model_outputs)
+            pipeline_inputs = {"query": query, "table": table}
+            current_answer = self.pipeline(pipeline_inputs)
             answers.extend(current_answer)
 
         answers = sorted(answers, reverse=True)
@@ -447,16 +442,20 @@ class _TapasScoredEncoder:
         tokenizer: Optional[str] = None,
         top_k_per_candidate: int = 3,
         return_no_answer: bool = False,
-        max_seq_len: int = 256,
+        max_seq_len: int = 512,
         use_auth_token: Optional[Union[str, bool]] = None,
     ):
         self.model = self._TapasForScoredQA.from_pretrained(
             model_name_or_path, revision=model_version, use_auth_token=use_auth_token
         )
         if tokenizer is None:
-            self.tokenizer = TapasTokenizer.from_pretrained(model_name_or_path, use_auth_token=use_auth_token)
+            self.tokenizer = TapasTokenizer.from_pretrained(
+                model_name_or_path, use_auth_token=use_auth_token, model_max_length=max_seq_len
+            )
         else:
-            self.tokenizer = TapasTokenizer.from_pretrained(tokenizer, use_auth_token=use_auth_token)
+            self.tokenizer = TapasTokenizer.from_pretrained(
+                tokenizer, use_auth_token=use_auth_token, model_max_length=max_seq_len
+            )
         self.max_seq_len = max_seq_len
         self.device = device
         self.top_k_per_candidate = top_k_per_candidate
@@ -560,10 +559,10 @@ class _TapasScoredEncoder:
         return answers, no_answer_score
 
     @staticmethod
-    def _preprocess(query: str, table: pd.DataFrame, tokenizer, max_seq_len) -> BatchEncoding:
+    def _preprocess(query: str, table: pd.DataFrame, tokenizer) -> BatchEncoding:
         """Tokenize the query and table."""
         model_inputs = tokenizer(
-            table=table, queries=query, max_length=max_seq_len, return_tensors="pt", truncation=True
+            table=table, queries=query, max_length=tokenizer.model_max_length, return_tensors="pt", truncation=True
         )
         return model_inputs
 
@@ -573,7 +572,7 @@ class _TapasScoredEncoder:
         table_documents = _check_documents(documents)
         for document in table_documents:
             table: pd.DataFrame = document.content
-            model_inputs = self._preprocess(query, table, self.tokenizer, self.max_seq_len)
+            model_inputs = self._preprocess(query, table, self.tokenizer)
             model_inputs.to(self.device)
 
             current_answers, current_no_answer_score = self._predict_tapas_scored(model_inputs, document)
