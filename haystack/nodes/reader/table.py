@@ -477,7 +477,13 @@ class _TapasEncoder:
         table_documents = _check_documents(documents)
         for document in table_documents:
             table: pd.DataFrame = document.content
-            pipeline_inputs = {"query": query, "table": table}
+            pipeline_inputs = {
+                "query": query,
+                "table": table,
+                "sequential": False,
+                "padding": False,
+                "truncation": False,
+            }
             current_answer = self.pipeline(pipeline_inputs)[0]
             current_answer.document_id = document.id
             answers.append(current_answer)
