@@ -414,20 +414,19 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                     },
                 )
                 answers.append(answer)
-            # TODO Feat: Add ability to return no answer
-            # if len(answers) == 0:
-            #     answers.append(
-            #         Answer(
-            #             answer="",
-            #             type="extractive",
-            #             score=0.0,
-            #             context=None,
-            #             offsets_in_context=[Span(start=0, end=0)],
-            #             offsets_in_document=[Span(start=0, end=0)],
-            #             document_id=None,
-            #             meta=None,
-            #         )
-            #     )
+            if len(answers) == 0:
+                answers.append(
+                    Answer(
+                        answer="",
+                        type="extractive",
+                        score=0.0,
+                        context=None,
+                        offsets_in_context=[Span(start=0, end=0)],
+                        offsets_in_document=[Span(start=0, end=0)],
+                        document_id=None,
+                        meta=None,
+                    )
+                )
         else:
             raise NotImplementedError("Only TAPAS models are supported")
 
