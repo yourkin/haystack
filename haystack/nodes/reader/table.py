@@ -320,13 +320,19 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
             num_batch == len(answer_coordinates) == inputs["input_ids"].shape[0]
         ), "Ensure all inputs have same batch dimension"
         for i in range(num_batch):
-            cell_coords_to_prob = self.tokenizer._get_mean_cell_probs(
-                token_probabilities[i].tolist(), segment_ids[i].tolist(), row_ids[i].tolist(), column_ids[i].tolist()
-            )
-            # _get_mean_cell_probs seems to index cells by (col, row). DataFrames are, however, indexed by (row, col).
-            all_cell_probabilities = {(row, col): prob for (col, row), prob in cell_coords_to_prob.items()}
-            answer_cell_probabilities = [all_cell_probabilities[coord] for coord in answer_coordinates[i]]
-            answer_scores.append(np.mean(answer_cell_probabilities))
+            if len(answer_coordinates[i]) == 0:
+                answer_scores.append(None)
+            else:
+                cell_coords_to_prob = self.tokenizer._get_mean_cell_probs(
+                    token_probabilities[i].tolist(),
+                    segment_ids[i].tolist(),
+                    row_ids[i].tolist(),
+                    column_ids[i].tolist(),
+                )
+                # _get_mean_cell_probs seems to index cells by (col, row). DataFrames are, however, indexed by (row, col).
+                all_cell_probabilities = {(row, col): prob for (col, row), prob in cell_coords_to_prob.items()}
+                answer_cell_probabilities = [all_cell_probabilities[coord] for coord in answer_coordinates[i]]
+                answer_scores.append(np.mean(answer_cell_probabilities))
 
         return answer_scores
 
@@ -393,40 +399,41 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
             answer_scores = self._calculate_answer_score(logits, inputs, answer_coordinates_batch)
             answers = []
             for index, coordinates in enumerate(answer_coordinates_batch):
-                cells = [table.iat[coordinate] for coordinate in coordinates]
-                aggregator = aggregators.get(index, "")  # type: ignore
-                if aggregator == "NONE":
-                    answer_str = ", ".join(cells)
-                else:
-                    answer_str = self._aggregate_answers(aggregator, cells)
-                answer_offsets = _calculate_answer_offsets(coordinates, table)
-                current_score = answer_scores[index]
-                answer = Answer(
-                    answer=answer_str,
-                    type="extractive",
-                    score=current_score,
-                    context=table,
-                    offsets_in_document=answer_offsets,
-                    offsets_in_context=answer_offsets,
-                    meta={
-                        "aggregation_operator": aggregator,
-                        "answer_cells": [table.iat[coordinate] for coordinate in coordinates],
-                    },
-                )
-                answers.append(answer)
-            if len(answers) == 0:
-                answers.append(
-                    Answer(
-                        answer="",
+                if len(coordinates) != 0:
+                    cells = [table.iat[coordinate] for coordinate in coordinates]
+                    aggregator = aggregators.get(index, "")  # type: ignore
+                    if aggregator == "NONE":
+                        answer_str = ", ".join(cells)
+                    else:
+                        answer_str = self._aggregate_answers(aggregator, cells)
+                    answer_offsets = _calculate_answer_offsets(coordinates, table)
+                    current_score = answer_scores[index]
+                    answer = Answer(
+                        answer=answer_str,
                         type="extractive",
-                        score=0.0,
-                        context=None,
-                        offsets_in_context=[Span(start=0, end=0)],
-                        offsets_in_document=[Span(start=0, end=0)],
-                        document_id=None,
-                        meta=None,
+                        score=current_score,
+                        context=table,
+                        offsets_in_document=answer_offsets,
+                        offsets_in_context=answer_offsets,
+                        meta={
+                            "aggregation_operator": aggregator,
+                            "answer_cells": [table.iat[coordinate] for coordinate in coordinates],
+                        },
                     )
-                )
+                    answers.append(answer)
+                else:
+                    answers.append(
+                        Answer(
+                            answer="",
+                            type="extractive",
+                            score=0.0,
+                            context=None,
+                            offsets_in_context=[Span(start=0, end=0)],
+                            offsets_in_document=[Span(start=0, end=0)],
+                            document_id=None,
+                            meta=None,
+                        )
+                    )
         else:
             raise NotImplementedError("Only TAPAS models are supported")
 
