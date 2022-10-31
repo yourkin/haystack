@@ -290,22 +290,17 @@ class TableReader(BaseReader):
 
 class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
     def _calculate_answer_score(
-        self, logits: torch.Tensor, inputs: Dict, answer_coordinates: List[List[Tuple[int, int]]]
+        self,
+        logits: torch.Tensor,
+        inputs: Dict,
+        answer_coordinates: List[List[Tuple[int, int]]],
+        temperature: Optional[float] = None,
     ) -> List[np.float64]:
-        # TODO Look at original implementation for calculating cell probabilities
-        #  here: https://github.com/google-research/tapas/blob/569a3c31451d941165bd10783f73f494406b3906/tapas/models/tapas_classifier_model.py#L324-L356
-        #  - There is a chance that the temperature scaling was missed
-        #  - Softmax is no good, b/c it's possible no tokens should be a part of the answer (and there is no "no answer" prediction)
-        #  - Not sure where the current implementation came from, worth checking the original PR for TAPAS
+        if temperature is not None:
+            token_probabilities = torch.sigmoid(logits * temperature) * inputs["attention_mask"]
+        else:
+            token_probabilities = torch.sigmoid(logits) * inputs["attention_mask"]
 
-        # TODO I think transformers forgot to multiply by temp to scale back down the logits.
-        #  - Starting clue: https://github.com/google-research/tapas/blob/569a3c31451d941165bd10783f73f494406b3906/tapas/models/tapas_classifier_model.py#L315-L318
-        #  - http: // proceedings.mlr.press / v124 / wang20b / wang20b.pdf
-        scaled_logits = logits * self.model.config.temperature
-
-        # Values over 88.72284 will overflow when passed through exponential, so logits are truncated.
-        # scaled_logits[scaled_logits < -88.7] = -88.7  # Might not need since numpy handles it
-        token_probabilities = 1 / (1 + np.exp(-scaled_logits)) * inputs["attention_mask"]
         token_types = [
             "segment_ids",
             "column_ids",
@@ -315,7 +310,6 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
             "inv_column_ranks",
             "numeric_relations",
         ]
-
         segment_ids = inputs["token_type_ids"][:, :, token_types.index("segment_ids")]
         row_ids = inputs["token_type_ids"][:, :, token_types.index("row_ids")]
         column_ids = inputs["token_type_ids"][:, :, token_types.index("column_ids")]
@@ -384,7 +378,7 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                 logits, logits_agg = outputs[:2]
                 copy_logits = logits.clone()
                 predictions = self.tokenizer.convert_logits_to_predictions(
-                    inputs, copy_logits, logits_agg, cell_classification_threshold=0.01
+                    inputs, copy_logits, logits_agg, cell_classification_threshold=0.5
                 )
                 answer_coordinates_batch, agg_predictions = predictions
                 aggregators = {i: self.model.config.aggregation_labels[pred] for i, pred in enumerate(agg_predictions)}
@@ -392,11 +386,10 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                 logits = outputs[0]
                 copy_logits = logits.clone()
                 predictions = self.tokenizer.convert_logits_to_predictions(
-                    inputs, copy_logits, cell_classification_threshold=0.01
+                    inputs, copy_logits, cell_classification_threshold=0.5
                 )
                 answer_coordinates_batch = predictions[0]
                 aggregators = {}
-            # TODO Add sorting
             answer_scores = self._calculate_answer_score(logits, inputs, answer_coordinates_batch)
             answers = []
             for index, coordinates in enumerate(answer_coordinates_batch):
@@ -415,26 +408,26 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                     context=table,
                     offsets_in_document=answer_offsets,
                     offsets_in_context=answer_offsets,
-                    # document_id=document.id,  # FIXME
                     meta={
                         "aggregation_operator": aggregator,
                         "answer_cells": [table.iat[coordinate] for coordinate in coordinates],
                     },
                 )
                 answers.append(answer)
-            if len(answers) == 0:
-                answers.append(
-                    Answer(
-                        answer="",
-                        type="extractive",
-                        score=0.0,  # TODO Calculate proper no answer score
-                        context=None,
-                        offsets_in_context=[Span(start=0, end=0)],
-                        offsets_in_document=[Span(start=0, end=0)],
-                        document_id=None,
-                        meta=None,
-                    )
-                )
+            # TODO Feat: Add ability to return no answer
+            # if len(answers) == 0:
+            #     answers.append(
+            #         Answer(
+            #             answer="",
+            #             type="extractive",
+            #             score=0.0,
+            #             context=None,
+            #             offsets_in_context=[Span(start=0, end=0)],
+            #             offsets_in_document=[Span(start=0, end=0)],
+            #             document_id=None,
+            #             meta=None,
+            #         )
+            #     )
         else:
             raise NotImplementedError("Only TAPAS models are supported")
 
@@ -479,8 +472,9 @@ class _TapasEncoder:
         for document in table_documents:
             table: pd.DataFrame = document.content
             pipeline_inputs = {"query": query, "table": table}
-            current_answer = self.pipeline(pipeline_inputs)
-            answers.extend(current_answer)
+            current_answer = self.pipeline(pipeline_inputs)[0]
+            current_answer.document_id = document.id
+            answers.append(current_answer)
 
         answers = sorted(answers, reverse=True)
         results = {"query": query, "answers": answers[:top_k]}
