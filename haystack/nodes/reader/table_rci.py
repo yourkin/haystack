@@ -6,13 +6,14 @@ except ImportError:
     from typing_extensions import Literal  # type: ignore
 
 import logging
+import torch
 import pandas as pd
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from haystack.errors import HaystackError
 from haystack.schema import Document, Answer, Span
 from haystack.nodes.reader.base import BaseReader
 from haystack.modeling.utils import initialize_device_settings
+from haystack.nodes.reader.table import _flatten_inputs, _calculate_answer_offsets, _check_documents
 
 torch_scatter_installed = True
 torch_scatter_wrong_version = False
@@ -64,7 +65,6 @@ class RCIReader(BaseReader):
 
         - ``'michaelrglass/albert-base-rci-wikisql-row'`` + ``'michaelrglass/albert-base-rci-wikisql-col'``
         - ``'michaelrglass/albert-base-rci-wtq-row'`` + ``'michaelrglass/albert-base-rci-wtq-col'``
-
 
 
         :param row_model_name_or_path: Directory of a saved row scoring model or the name of a public model
@@ -149,19 +149,11 @@ class RCIReader(BaseReader):
             top_k = self.top_k
 
         answers = []
-        for document in documents:
-            if document.content_type != "table":
-                logger.warning("Skipping document with id '%s' in RCIReader as it is not of type table.", document.id)
-                continue
-
-            table: pd.DataFrame = document.content
-            if table.shape[0] == 0:
-                logger.warning(
-                    "Skipping document with id '%s' in RCIReader as it does not contain any rows.", document.id
-                )
-                continue
-            table = table.astype(str)
+        table_documents = _check_documents(documents)
+        for document in table_documents:
             # Create row and column representations
+            table: pd.DataFrame = document.content
+            table = table.astype(str)
             row_reps, column_reps = self._create_row_column_representations(table)
 
             # Get row logits
@@ -174,7 +166,8 @@ class RCIReader(BaseReader):
                 padding=True,
             )
             row_inputs.to(self.devices[0])
-            row_logits = self.row_model(**row_inputs)[0].detach().cpu().numpy()[:, 1]
+            with torch.no_grad():
+                row_logits = self.row_model(**row_inputs)[0].cpu().numpy()[:, 1]
 
             # Get column logits
             column_inputs = self.column_tokenizer(
@@ -186,7 +179,8 @@ class RCIReader(BaseReader):
                 padding=True,
             )
             column_inputs.to(self.devices[0])
-            column_logits = self.column_model(**column_inputs)[0].detach().cpu().numpy()[:, 1]
+            with torch.no_grad():
+                column_logits = self.column_model(**column_inputs)[0].cpu().numpy()[:, 1]
 
             # Calculate cell scores
             current_answers: List[Answer] = []
@@ -198,15 +192,15 @@ class RCIReader(BaseReader):
                     cell_scores_table[-1].append(current_cell_score)
 
                     answer_str = table.iloc[row_idx, col_idx]
-                    answer_offsets = self._calculate_answer_offsets(row_idx, col_idx, table)
+                    answer_offsets = _calculate_answer_offsets([(row_idx, col_idx)], table)
                     current_answers.append(
                         Answer(
                             answer=answer_str,
                             type="extractive",
                             score=current_cell_score,
                             context=table,
-                            offsets_in_document=[answer_offsets],
-                            offsets_in_context=[answer_offsets],
+                            offsets_in_document=[answer_offsets[0]],
+                            offsets_in_context=[answer_offsets[0]],
                             document_id=document.id,
                         )
                     )
@@ -241,13 +235,6 @@ class RCIReader(BaseReader):
 
         return row_reps, column_reps
 
-    @staticmethod
-    def _calculate_answer_offsets(row_idx, column_index, table) -> Span:
-        n_rows, n_columns = table.shape
-        answer_cell_offset = (row_idx * n_columns) + column_index
-
-        return Span(start=answer_cell_offset, end=answer_cell_offset + 1)
-
     def predict_batch(
         self,
         queries: List[str],
@@ -255,33 +242,20 @@ class RCIReader(BaseReader):
         top_k: Optional[int] = None,
         batch_size: Optional[int] = None,
     ):
-        # TODO: Currently, just calls naively predict method, so there is room for improvement.
+        if top_k is None:
+            top_k = self.top_k
 
-        results: Dict = {"queries": queries, "answers": []}
-
-        single_doc_list = False
-        # Docs case 1: single list of Documents -> apply each query to all Documents
         if len(documents) > 0 and isinstance(documents[0], Document):
             single_doc_list = True
-            for query in queries:
-                for doc in documents:
-                    if not isinstance(doc, Document):
-                        raise HaystackError(f"doc was of type {type(doc)}, but expected a Document.")
-                    preds = self.predict(query=query, documents=[doc], top_k=top_k)
-                    results["answers"].append(preds["answers"])
+        else:
+            single_doc_list = False
 
-        # Docs case 2: list of lists of Documents -> apply each query to corresponding list of Documents, if queries
-        # contains only one query, apply it to each list of Documents
-        elif len(documents) > 0 and isinstance(documents[0], list):
-            if len(queries) == 1:
-                queries = queries * len(documents)
-            if len(queries) != len(documents):
-                raise HaystackError("Number of queries must be equal to number of provided Document lists.")
-            for query, cur_docs in zip(queries, documents):
-                if not isinstance(cur_docs, list):
-                    raise HaystackError(f"cur_docs was of type {type(cur_docs)}, but expected a list of Documents.")
-                preds = self.predict(query=query, documents=cur_docs, top_k=top_k)
-                results["answers"].append(preds["answers"])
+        inputs = _flatten_inputs(queries, documents)
+
+        results: Dict = {"queries": queries, "answers": []}
+        for query, docs in zip(inputs["queries"], inputs["docs"]):
+            preds = self.predict(query=query, documents=docs, top_k=top_k)
+            results["answers"].append(preds["answers"])
 
         # Group answers by question in case of multiple queries and single doc list
         if single_doc_list and len(queries) > 1:
