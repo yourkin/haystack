@@ -199,8 +199,8 @@ class RCIReader(BaseReader):
                             type="extractive",
                             score=current_cell_score,
                             context=table,
-                            offsets_in_document=[answer_offsets[0]],
-                            offsets_in_context=[answer_offsets[0]],
+                            offsets_in_document=answer_offsets,
+                            offsets_in_context=answer_offsets,
                             document_id=document.id,
                         )
                     )

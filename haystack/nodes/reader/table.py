@@ -231,6 +231,7 @@ class TableReader(BaseReader):
 
         results: Dict = {"queries": queries, "answers": []}
         for query, docs in zip(inputs["queries"], inputs["docs"]):
+            # [{"table": table, "query": query}, {"table": table, "query": query}]
             preds = self.table_encoder.predict(query=query, documents=docs, top_k=top_k)
             results["answers"].append(preds["answers"])
 
@@ -432,20 +433,19 @@ class _TapasEncoder:
         )
 
     def predict(self, query: str, documents: List[Document], top_k: int) -> Dict:
-        answers = []
         table_documents = _check_documents(documents)
+        if len(table_documents) == 0:
+            return {"query": query, "answers": []}
+
+        pipeline_inputs = []
         for document in table_documents:
             table: pd.DataFrame = document.content
-            pipeline_inputs = {
-                "query": query,
-                "table": table,
-                "sequential": False,
-                "padding": False,
-                "truncation": False,
-            }
-            current_answer = self.pipeline(pipeline_inputs)[0]
-            current_answer.document_id = document.id
-            answers.append(current_answer)
+            pipeline_inputs.append(
+                {"query": query, "table": table, "sequential": False, "padding": True, "truncation": True}
+            )
+        answers = self.pipeline(pipeline_inputs)
+        for ans, doc in zip(answers, table_documents):
+            ans.document_id = doc.id
 
         answers = sorted(answers, reverse=True)
         results = {"query": query, "answers": answers[:top_k]}
@@ -586,9 +586,12 @@ class _TapasScoredEncoder:
         return model_inputs
 
     def predict(self, query: str, documents: List[Document], top_k: int) -> Dict:
+        table_documents = _check_documents(documents)
+        if len(table_documents) == 0:
+            return {"query": query, "answers": []}
+
         answers = []
         no_answer_score = 1.0
-        table_documents = _check_documents(documents)
         for document in table_documents:
             table: pd.DataFrame = document.content
             model_inputs = self._preprocess(query, table, self.tokenizer)
