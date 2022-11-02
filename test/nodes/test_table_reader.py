@@ -17,17 +17,37 @@ def test_table_reader(table_reader_and_param):
         "date of birth": ["18 december 1963", "11 november 1974", "6 may 1961"],
     }
     table = pd.DataFrame(data)
+    data2 = {
+        "actors": ["chris pratt", "gal gadot", "oprah winfrey"],
+        "age": ["45", "36", "65"],
+        "number of movies": ["49", "34", "5"],
+        "date of birth": ["12 january 1975", "5 april 1980", "15 september 1960"],
+    }
+    table2 = pd.DataFrame(data2)
 
     query = "When was Di Caprio born?"
-    prediction = table_reader.predict(query=query, documents=[Document(content=table, content_type="table")])
+    prediction = table_reader.predict(
+        query=query,
+        documents=[Document(content=table, content_type="table"), Document(content=table2, content_type="table")],
+    )
     scores = {"tapas_small": 1.0, "rci": -6.5301, "tapas_scored": 0.50568}
     assert prediction["answers"][0].score == pytest.approx(scores[param], rel=1e-3)
     assert prediction["answers"][0].answer == "11 november 1974"
     assert prediction["answers"][0].offsets_in_context[0].start == 7
     assert prediction["answers"][0].offsets_in_context[0].end == 8
 
+    predictions = {
+        "tapas_small": {"answer": "5 april 1980", "start": 7, "end": 8, "score": 0.86314},
+        "rci": {"answer": "5 april 1980", "start": 7, "end": 8, "score": -6.5301},
+        "tapas_scored": {"answer": "brad pitt", "start": 0, "end": 1, "score": 0.49078},
+    }
+    assert prediction["answers"][1].score == pytest.approx(predictions[param]["score"], rel=1e-3)
+    assert prediction["answers"][1].answer == predictions[param]["answer"]
+    assert prediction["answers"][1].offsets_in_context[0].start == predictions[param]["start"]
+    assert prediction["answers"][1].offsets_in_context[0].end == predictions[param]["end"]
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_table_reader_batch_single_query_single_doc_list(table_reader_and_param):
     table_reader, param = table_reader_and_param
     data = {
@@ -47,7 +67,7 @@ def test_table_reader_batch_single_query_single_doc_list(table_reader_and_param)
     assert len(prediction["answers"]) == 1  # Predictions for 5 docs
 
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_table_reader_batch_single_query_multiple_doc_lists(table_reader_and_param):
     table_reader, param = table_reader_and_param
     data = {
@@ -69,7 +89,7 @@ def test_table_reader_batch_single_query_multiple_doc_lists(table_reader_and_par
     assert len(prediction["answers"]) == 1  # Predictions for 1 collection of docs
 
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_table_reader_batch_multiple_queries_single_doc_list(table_reader_and_param):
     table_reader, param = table_reader_and_param
     data = {
@@ -92,7 +112,7 @@ def test_table_reader_batch_multiple_queries_single_doc_list(table_reader_and_pa
     assert len(prediction["answers"]) == 2  # Predictions for 2 queries
 
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_table_reader_batch_multiple_queries_multiple_doc_lists(table_reader_and_param):
     table_reader, param = table_reader_and_param
     data = {
@@ -115,7 +135,7 @@ def test_table_reader_batch_multiple_queries_multiple_doc_lists(table_reader_and
     assert len(prediction["answers"]) == 2  # Predictions for 2 collections of documents
 
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_table_reader_in_pipeline(table_reader_and_param):
     table_reader, param = table_reader_and_param
     pipeline = Pipeline()
@@ -161,7 +181,7 @@ def test_table_reader_aggregation(table_reader_and_param):
     assert prediction["answers"][0].meta["answer_cells"] == ["8848m", "8,611 m", "8 586m", "8 516 m", "8,485m"]
 
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_table_without_rows(caplog, table_reader_and_param):
     table_reader, param = table_reader_and_param
     # empty DataFrame
@@ -173,7 +193,7 @@ def test_table_without_rows(caplog, table_reader_and_param):
         assert len(predictions["answers"]) == 0
 
 
-@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci"], indirect=True)
+@pytest.mark.parametrize("table_reader_and_param", ["tapas_small", "rci", "tapas_scored"], indirect=True)
 def test_text_document(caplog, table_reader_and_param):
     table_reader, param = table_reader_and_param
     document = Document(content="text", id="text_doc")

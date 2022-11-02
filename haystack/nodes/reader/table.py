@@ -6,6 +6,7 @@ except ImportError:
     from typing_extensions import Literal  # type: ignore
 
 import logging
+import itertools
 from statistics import mean
 import torch
 import numpy as np
@@ -228,12 +229,9 @@ class TableReader(BaseReader):
             single_doc_list = False
 
         inputs = _flatten_inputs(queries, documents)
-
-        results: Dict = {"queries": queries, "answers": []}
-        for query, docs in zip(inputs["queries"], inputs["docs"]):
-            # [{"table": table, "query": query}, {"table": table, "query": query}]
-            preds = self.table_encoder.predict(query=query, documents=docs, top_k=top_k)
-            results["answers"].append(preds["answers"])
+        results: Dict = self.table_encoder.predict_batch(
+            queries=inputs["queries"], documents=inputs["docs"], top_k=top_k
+        )
 
         # Group answers by question in case of multiple queries and single doc list
         if single_doc_list and len(queries) > 1:
@@ -443,12 +441,23 @@ class _TapasEncoder:
             pipeline_inputs.append(
                 {"query": query, "table": table, "sequential": False, "padding": True, "truncation": True}
             )
+        # TODO Turn pipeline_inputs into a HF Dataset so batching works as expected
         answers = self.pipeline(pipeline_inputs)
+        if isinstance(answers[0], list):
+            answers = list(itertools.chain.from_iterable(answers))
         for ans, doc in zip(answers, table_documents):
             ans.document_id = doc.id
 
         answers = sorted(answers, reverse=True)
         results = {"query": query, "answers": answers[:top_k]}
+        return results
+
+    def predict_batch(self, queries, documents, top_k):
+        # [{"table": table, "query": query}, {"table": table, "query": query}]
+        results: Dict = {"queries": queries, "answers": []}
+        for query, docs in zip(queries, documents):
+            preds = self.predict(query=query, documents=docs, top_k=top_k)
+            results["answers"].append(preds["answers"])
         return results
 
 
@@ -618,6 +627,13 @@ class _TapasScoredEncoder:
 
         answers = sorted(answers, reverse=True)
         results = {"query": query, "answers": answers[:top_k]}
+        return results
+
+    def predict_batch(self, queries, documents, top_k):
+        results: Dict = {"queries": queries, "answers": []}
+        for query, docs in zip(queries, documents):
+            preds = self.predict(query=query, documents=docs, top_k=top_k)
+            results["answers"].append(preds["answers"])
         return results
 
     class _TapasForScoredQA(TapasPreTrainedModel):
