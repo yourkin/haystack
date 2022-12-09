@@ -38,7 +38,7 @@ def test_table_reader(table_reader_and_param):
 
     predictions = {
         "tapas_small": {"answer": "5 april 1980", "start": 7, "end": 8, "score": 0.86314},
-        "rci": {"answer": "5 april 1980", "start": 7, "end": 8, "score": -6.5301},
+        "rci": {"answer": "47", "start": 5, "end": 6, "score": -6.836},
         "tapas_scored": {"answer": "brad pitt", "start": 0, "end": 1, "score": 0.49078},
     }
     assert prediction["answers"][1].score == pytest.approx(predictions[param]["score"], rel=1e-3)
@@ -151,7 +151,6 @@ def test_table_reader_in_pipeline(table_reader_and_param):
     query = "When was Di Caprio born?"
 
     prediction = pipeline.run(query=query, documents=[Document(content=table, content_type="table")])
-
     assert prediction["answers"][0].answer == "11 november 1974"
     assert prediction["answers"][0].offsets_in_context[0].start == 7
     assert prediction["answers"][0].offsets_in_context[0].end == 8

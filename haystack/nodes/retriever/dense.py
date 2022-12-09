@@ -110,16 +110,16 @@ class DensePassageRetriever(DenseRetriever):
 
         **Example:**
 
-                ```python
-                |    # remote model from FAIR
-                |    DensePassageRetriever(document_store=your_doc_store,
-                |                          query_embedding_model="facebook/dpr-question_encoder-single-nq-base",
-                |                          passage_embedding_model="facebook/dpr-ctx_encoder-single-nq-base")
-                |    # or from local path
-                |    DensePassageRetriever(document_store=your_doc_store,
-                |                          query_embedding_model="model_directory/question-encoder",
-                |                          passage_embedding_model="model_directory/context-encoder")
-                ```
+        ```python
+        # remote model from FAIR
+        DensePassageRetriever(document_store=your_doc_store,
+                              query_embedding_model="facebook/dpr-question_encoder-single-nq-base",
+                              passage_embedding_model="facebook/dpr-ctx_encoder-single-nq-base")
+        # or from local path
+        DensePassageRetriever(document_store=your_doc_store,
+                              query_embedding_model="model_directory/question-encoder",
+                              passage_embedding_model="model_directory/context-encoder")
+        ```
 
         :param document_store: An instance of DocumentStore from which to retrieve documents.
         :param query_embedding_model: Local path or remote name of question encoder checkpoint. The format equals the
@@ -266,6 +266,7 @@ class DensePassageRetriever(DenseRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -294,6 +295,7 @@ class DensePassageRetriever(DenseRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -378,6 +380,7 @@ class DensePassageRetriever(DenseRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -406,6 +409,7 @@ class DensePassageRetriever(DenseRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -463,22 +467,12 @@ class DensePassageRetriever(DenseRetriever):
         if scale_score is None:
             scale_score = self.scale_score
 
-        documents = []
         query_embs: List[np.ndarray] = []
         for batch in self._get_batches(queries=queries, batch_size=batch_size):
             query_embs.extend(self.embed_queries(queries=batch))
-        for query_emb, cur_filters in tqdm(
-            zip(query_embs, filters), total=len(query_embs), disable=not self.progress_bar, desc="Querying"
-        ):
-            cur_docs = document_store.query_by_embedding(
-                query_emb=query_emb,
-                top_k=top_k,
-                filters=cur_filters,
-                index=index,
-                headers=headers,
-                scale_score=scale_score,
-            )
-            documents.append(cur_docs)
+        documents = document_store.query_by_embedding_batch(
+            query_embs=query_embs, top_k=top_k, filters=filters, index=index, headers=headers, scale_score=scale_score
+        )
 
         return documents
 
@@ -1020,6 +1014,7 @@ class TableTextRetriever(DenseRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -1048,6 +1043,7 @@ class TableTextRetriever(DenseRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -1105,22 +1101,12 @@ class TableTextRetriever(DenseRetriever):
         if scale_score is None:
             scale_score = self.scale_score
 
-        documents = []
         query_embs: List[np.ndarray] = []
         for batch in self._get_batches(queries=queries, batch_size=batch_size):
             query_embs.extend(self.embed_queries(queries=batch))
-        for query_emb, cur_filters in tqdm(
-            zip(query_embs, filters), total=len(query_embs), disable=not self.progress_bar, desc="Querying"
-        ):
-            cur_docs = document_store.query_by_embedding(
-                query_emb=query_emb,
-                top_k=top_k,
-                filters=cur_filters,
-                index=index,
-                headers=headers,
-                scale_score=scale_score,
-            )
-            documents.append(cur_docs)
+        documents = document_store.query_by_embedding_batch(
+            query_embs=query_embs, top_k=top_k, filters=filters, index=index, headers=headers, scale_score=scale_score
+        )
 
         return documents
 
@@ -1617,6 +1603,7 @@ class EmbeddingRetriever(DenseRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -1645,6 +1632,7 @@ class EmbeddingRetriever(DenseRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -1729,6 +1717,7 @@ class EmbeddingRetriever(DenseRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -1757,6 +1746,7 @@ class EmbeddingRetriever(DenseRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -1813,22 +1803,12 @@ class EmbeddingRetriever(DenseRetriever):
         if scale_score is None:
             scale_score = self.scale_score
 
-        documents = []
         query_embs: List[np.ndarray] = []
         for batch in self._get_batches(queries=queries, batch_size=batch_size):
             query_embs.extend(self.embed_queries(queries=batch))
-        for query_emb, cur_filters in tqdm(
-            zip(query_embs, filters), total=len(query_embs), disable=not self.progress_bar, desc="Querying"
-        ):
-            cur_docs = document_store.query_by_embedding(
-                query_emb=query_emb,
-                top_k=top_k,
-                filters=cur_filters,
-                index=index,
-                headers=headers,
-                scale_score=scale_score,
-            )
-            documents.append(cur_docs)
+        documents = document_store.query_by_embedding_batch(
+            query_embs=query_embs, top_k=top_k, filters=filters, index=index, headers=headers, scale_score=scale_score
+        )
 
         return documents
 
@@ -2086,6 +2066,7 @@ class MultihopEmbeddingRetriever(EmbeddingRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -2114,6 +2095,7 @@ class MultihopEmbeddingRetriever(EmbeddingRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -2192,6 +2174,7 @@ class MultihopEmbeddingRetriever(EmbeddingRetriever):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -2220,6 +2203,7 @@ class MultihopEmbeddingRetriever(EmbeddingRetriever):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -2287,22 +2271,22 @@ class MultihopEmbeddingRetriever(EmbeddingRetriever):
             for it in range(self.num_iterations):
                 texts = [self._merge_query_and_context(q, c) for q, c in zip(batch, context_docs)]
                 query_embs = self.embed_queries(texts)
-                for idx, emb in enumerate(query_embs):
-                    cur_docs = document_store.query_by_embedding(
-                        query_emb=emb,
-                        top_k=top_k,
-                        filters=cur_filters,
-                        index=index,
-                        headers=headers,
-                        scale_score=scale_score,
-                    )
-                    if it < self.num_iterations - 1:
-                        # add doc with highest score to context
+                cur_docs_batch = document_store.query_by_embedding_batch(
+                    query_embs=query_embs,
+                    top_k=top_k,
+                    filters=cur_filters,
+                    index=index,
+                    headers=headers,
+                    scale_score=scale_score,
+                )
+                if it < self.num_iterations - 1:
+                    # add doc with highest score to context
+                    for idx, cur_docs in enumerate(cur_docs_batch):
                         if len(cur_docs) > 0:
                             context_docs[idx].append(cur_docs[0])
-                    else:
-                        # documents in the last iteration are final results
-                        documents.append(cur_docs)
+                else:
+                    # documents in the last iteration are final results
+                    documents.extend(cur_docs_batch)
             pb.update(len(batch))
         pb.close()
 

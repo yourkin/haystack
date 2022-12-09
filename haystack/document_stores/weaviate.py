@@ -7,7 +7,7 @@ import hashlib
 import logging
 
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 try:
     import weaviate
@@ -674,6 +674,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -818,6 +819,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -876,6 +878,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -904,6 +907,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -981,28 +985,29 @@ class WeaviateDocumentStore(BaseDocumentStore):
             )
 
             # Retrieval with BM25 AND filtering
-            if filters:
+            if filters:  # pylint: disable=no-else-raise
                 raise NotImplementedError(
-                    "Weaviate currently (v1.14.1) does not support filters WITH inverted index text query (eg BM25)!"
+                    "Weaviate currently does not support filters WITH inverted index text query (eg BM25)!"
                 )
-
-                # Once Weaviate starts supporting filters with BM25:
+                # # Once Weaviate starts supporting filters with BM25:
                 # filter_dict = LogicalFilterClause.parse(filters).convert_to_weaviate()
-                # gql_query = weaviate.gql.get.GetBuilder(class_name=index,
-                #                                         properties=properties,
-                #                                         connection=self.weaviate_client) \
-                #     .with_near_vector({'vector': [0, 0]}) \
-                #     .with_where(filter_dict) \
-                #     .with_limit(top_k) \
+                # gql_query = (
+                #     weaviate.gql.get.GetBuilder(
+                #         class_name=index, properties=properties, connection=self.weaviate_client
+                #     )
+                #     .with_near_vector({"vector": [0, 0]})
+                #     .with_where(filter_dict)
+                #     .with_limit(top_k)
                 #     .build()
-
-            # BM25 retrieval without filtering
-            gql_query = (
-                gql.get.GetBuilder(class_name=index, properties=properties, connection=self.weaviate_client)
-                .with_near_vector({"vector": [0, 0]})
-                .with_limit(top_k)
-                .build()
-            )
+                # )
+            else:
+                # BM25 retrieval without filtering
+                gql_query = (
+                    gql.get.GetBuilder(class_name=index, properties=properties, connection=self.weaviate_client)
+                    .with_near_vector({"vector": [0, 0]})
+                    .with_limit(top_k)
+                    .build()
+                )
 
             # Build the BM25 part of the GQL manually.
             # Currently the GetBuilder of the Weaviate-client (v3.6.0)
@@ -1058,6 +1063,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -1086,6 +1092,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                             optionally a list of dictionaries as value.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$or": [
@@ -1196,6 +1203,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -1267,6 +1275,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {
@@ -1319,6 +1328,7 @@ class WeaviateDocumentStore(BaseDocumentStore):
                         operation.
 
                             __Example__:
+
                             ```python
                             filters = {
                                 "$and": {

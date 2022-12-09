@@ -5,7 +5,7 @@ from abc import abstractmethod
 from time import perf_counter
 from functools import wraps
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from haystack.schema import Document, MultiLabel
 from haystack.errors import HaystackError, PipelineError
@@ -131,7 +131,7 @@ class BaseRetriever(BaseComponent):
         Retriever is evaluated based on whether it finds the correct document given the query string and at which
         position in the ranking of documents the correct document is.
 
-        |  Returns a dict containing the following metrics:
+        Returns a dict containing the following metrics:
 
             - "recall": Proportion of questions for which correct document is among retrieved documents
             - "mrr": Mean of reciprocal rank. Rewards retrievers that give relevant documents a higher rank.
