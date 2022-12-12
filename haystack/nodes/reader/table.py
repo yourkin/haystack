@@ -108,7 +108,6 @@ class TableReader(BaseReader):
         :param top_k_per_candidate: How many answers to extract for each candidate table that is coming from
                                     the retriever.
         :param return_no_answer: Whether to include no_answer predictions in the results.
-                                 (Only applicable with nq-reader models.)
         :param max_seq_len: Max sequence length of one input table for the model. If the number of tokens of
                             query + table exceed max_seq_len, the table will be truncated by removing rows until the
                             input size fits the model.
@@ -148,6 +147,7 @@ class TableReader(BaseReader):
                 model_name_or_path=model_name_or_path,
                 model_version=model_version,
                 tokenizer=tokenizer,
+                return_no_answer=return_no_answer,
                 max_seq_len=max_seq_len,
                 batch_size=batch_size,
                 use_auth_token=use_auth_token,
@@ -277,6 +277,7 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
             num_batch == len(answer_coordinates) == inputs["input_ids"].shape[0]
         ), "Ensure all inputs have same batch dimension"
         for i in range(num_batch):
+            # TODO Add why this if check is necessary
             if len(answer_coordinates[i]) == 0:
                 answer_scores.append(None)
             else:
@@ -379,6 +380,13 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
                     )
                     answers.append(answer)
                 else:
+                    # TODO No answer score.
+                    #      1) First pass use 1 - (highest answer cell probability). This would only happen if
+                    #         highest answer cell probability is lower than 0.5. Has the possibility of returning
+                    #         multiple no answers.
+                    #      2) Do an aggregation across all documents to only return one no answer. Use logits from all
+                    #         documents to calculate the no answer score. Consider if positive answer scores should also
+                    #         be rescaled with logits from all documents.
                     answers.append(
                         Answer(
                             answer="",
@@ -394,6 +402,8 @@ class _TableQuestionAnsweringPipeline(TableQuestionAnsweringPipeline):
         else:
             raise NotImplementedError("Only TAPAS models are supported")
 
+        # TODO Consider returning logits in addition to answers.
+        #      Could maybe use logits to calculate no answer score.
         return answers
 
 
@@ -404,6 +414,7 @@ class _TapasEncoder:
         model_name_or_path: str = "google/tapas-base-finetuned-wtq",
         model_version: Optional[str] = None,
         tokenizer: Optional[str] = None,
+        return_no_answer: bool = False,
         max_seq_len: int = 512,
         batch_size: int = 1,
         use_auth_token: Optional[Union[str, bool]] = None,
@@ -419,6 +430,7 @@ class _TapasEncoder:
             self.tokenizer = TapasTokenizer.from_pretrained(
                 tokenizer, use_auth_token=use_auth_token, model_max_length=max_seq_len
             )
+        self.return_no_answer = return_no_answer
         self.max_seq_len = max_seq_len
         self.device = device
         self.pipeline = _TableQuestionAnsweringPipeline(
@@ -447,6 +459,11 @@ class _TapasEncoder:
             answers = list(itertools.chain.from_iterable(answers))
         for ans, doc in zip(answers, table_documents):
             ans.document_id = doc.id
+
+        # TODO Adding this could cause answers to be an empty list. Check what happens if this occurs.
+        # Optionally remove no answers
+        if self.return_no_answer is False:
+            answers = [ans for ans in answers if not _is_no_answer(ans)]
 
         answers = sorted(answers, reverse=True)
         results = {"query": query, "answers": answers[:top_k]}
@@ -655,6 +672,14 @@ class _TapasScoredEncoder:
 
             # Initialize weights
             self.init_weights()
+
+
+def _is_no_answer(answer: Answer):
+    """Used to check if an `answer` is a no answer"""
+    if answer.answer == "" and answer.offsets_in_document[0].start == 0 and answer.offsets_in_document[1].start:
+        return True
+    else:
+        return False
 
 
 def _calculate_answer_offsets(answer_coordinates: List[Tuple[int, int]], table: pd.DataFrame) -> List[Span]:
