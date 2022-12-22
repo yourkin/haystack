@@ -6,7 +6,6 @@ except ImportError:
     from typing_extensions import Literal  # type: ignore
 
 import logging
-import itertools
 from statistics import mean
 import torch
 import numpy as np
@@ -15,11 +14,11 @@ from quantulum3 import parser
 from transformers import (
     TapasTokenizer,
     TapasForQuestionAnswering,
+    AutoTokenizer,
+    AutoModelForSequenceClassification,
     BatchEncoding,
     TapasModel,
     TapasConfig,
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
     TableQuestionAnsweringPipeline,
 )
 from transformers.models.tapas.modeling_tapas import TapasPreTrainedModel
@@ -28,16 +27,6 @@ from haystack.errors import HaystackError
 from haystack.schema import Document, Answer, Span
 from haystack.nodes.reader.base import BaseReader
 from haystack.modeling.utils import initialize_device_settings
-
-torch_scatter_installed = True
-torch_scatter_wrong_version = False
-try:
-    import torch_scatter  # pylint: disable=unused-import
-except ImportError:
-    torch_scatter_installed = False
-except OSError:
-    torch_scatter_wrong_version = True
-
 
 logger = logging.getLogger(__name__)
 
@@ -665,11 +654,9 @@ class RCIReader(BaseReader):
     See the original paper for more details:
     Glass, Michael, et al. (2021): "Capturing Row and Column Semantics in Transformer Based Question Answering over Tables"
     (https://aclanthology.org/2021.naacl-main.96/)
-
     Each row and each column is given a score with regard to the query by two separate models. The score of each cell
     is then calculated as the sum of the corresponding row score and column score. Accordingly, the predicted answer is
     the cell with the highest score.
-
     Pros and Cons of RCIReader compared to TableReader:
     + Provides meaningful confidence scores
     + Allows larger tables as input
@@ -693,11 +680,8 @@ class RCIReader(BaseReader):
         """
         Load an RCI model from Transformers.
         Available models include:
-
         - ``'michaelrglass/albert-base-rci-wikisql-row'`` + ``'michaelrglass/albert-base-rci-wikisql-col'``
         - ``'michaelrglass/albert-base-rci-wtq-row'`` + ``'michaelrglass/albert-base-rci-wtq-col'``
-
-
         :param row_model_name_or_path: Directory of a saved row scoring model or the name of a public model
         :param column_model_name_or_path: Directory of a saved column scoring model or the name of a public model
         :param row_model_version: The version of row model to use from the HuggingFace model hub.
@@ -765,11 +749,9 @@ class RCIReader(BaseReader):
         """
         Use loaded RCI models to find answers for a query in the supplied list of Documents
         of content_type ``'table'``.
-
         Returns dictionary containing query and list of Answer objects sorted by (desc.) score.
         The existing RCI models on the HF model hub don"t allow aggregation, therefore, the answer will always be
         composed of a single cell.
-
         :param query: Query string
         :param documents: List of Document in which to search for the answer. Documents should be
                           of content_type ``'table'``.
@@ -797,8 +779,9 @@ class RCIReader(BaseReader):
                 padding=True,
             )
             row_inputs.to(self.devices[0])
-            with torch.no_grad():
-                row_logits = self.row_model(**row_inputs)[0].cpu().numpy()[:, 1]
+            with torch.inference_mode():
+                row_outputs = self.row_model(**row_inputs)
+            row_logits = row_outputs[0].detach().cpu().numpy()[:, 1]
 
             # Get column logits
             column_inputs = self.column_tokenizer(
@@ -810,8 +793,9 @@ class RCIReader(BaseReader):
                 padding=True,
             )
             column_inputs.to(self.devices[0])
-            with torch.no_grad():
-                column_logits = self.column_model(**column_inputs)[0].cpu().numpy()[:, 1]
+            with torch.inference_mode():
+                column_outputs = self.column_model(**column_inputs)
+            column_logits = column_outputs[0].detach().cpu().numpy()[:, 1]
 
             # Calculate cell scores
             current_answers: List[Answer] = []
@@ -823,15 +807,15 @@ class RCIReader(BaseReader):
                     cell_scores_table[-1].append(current_cell_score)
 
                     answer_str = table.iloc[row_idx, col_idx]
-                    answer_offsets = _calculate_answer_offsets([(row_idx, col_idx)], table)
+                    answer_offsets = self._calculate_answer_offsets(row_idx, col_idx, table)
                     current_answers.append(
                         Answer(
                             answer=answer_str,
                             type="extractive",
                             score=current_cell_score,
                             context=table,
-                            offsets_in_document=answer_offsets,
-                            offsets_in_context=answer_offsets,
+                            offsets_in_document=[answer_offsets],
+                            offsets_in_context=[answer_offsets],
                             document_id=document.id,
                         )
                     )
@@ -866,6 +850,13 @@ class RCIReader(BaseReader):
 
         return row_reps, column_reps
 
+    @staticmethod
+    def _calculate_answer_offsets(row_idx, column_index, table) -> Span:
+        n_rows, n_columns = table.shape
+        answer_cell_offset = (row_idx * n_columns) + column_index
+
+        return Span(start=answer_cell_offset, end=answer_cell_offset + 1)
+
     def predict_batch(
         self,
         queries: List[str],
@@ -876,24 +867,21 @@ class RCIReader(BaseReader):
         if top_k is None:
             top_k = self.top_k
 
-        if len(documents) > 0 and isinstance(documents[0], Document):
-            single_doc_list = True
-        else:
-            single_doc_list = False
+        single_doc_list = bool(len(documents) > 0 and isinstance(documents[0], Document))
 
         inputs = _flatten_inputs(queries, documents)
 
-        results: Dict = {"queries": queries, "answers": []}
+        results: Dict[str, List] = {"queries": inputs["queries"], "answers": []}
         for query, docs in zip(inputs["queries"], inputs["docs"]):
             preds = self.predict(query=query, documents=docs, top_k=top_k)
             results["answers"].append(preds["answers"])
 
         # Group answers by question in case of multiple queries and single doc list
         if single_doc_list and len(queries) > 1:
-            answers_per_query = int(len(results["answers"]) / len(queries))
+            num_docs_per_query = int(len(results["answers"]) / len(queries))
             answers = []
-            for i in range(0, len(results["answers"]), answers_per_query):
-                answer_group = results["answers"][i : i + answers_per_query]
+            for i in range(0, len(results["answers"]), num_docs_per_query):
+                answer_group = results["answers"][i : i + num_docs_per_query]
                 answers.append(answer_group)
             results["answers"] = answers
 
