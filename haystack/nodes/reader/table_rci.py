@@ -10,7 +10,7 @@ import torch
 import pandas as pd
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from haystack.schema import Document, Answer, Span
+from haystack.schema import Document, Answer
 from haystack.nodes.reader.base import BaseReader
 from haystack.modeling.utils import initialize_device_settings
 from haystack.nodes.reader.table import _flatten_inputs, _calculate_answer_offsets, _check_documents
