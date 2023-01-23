@@ -5,52 +5,36 @@ components:
     type: MRKLAgent
     params:
       prompt_node: MRKLAgentPromptNode
-      pipeline_names: ['serpapi_pipeline', 'calculator_pipeline', 'sqldbreader_pipeline']
+      pipeline_names: ['serpapi_pipeline', 'calculator_pipeline']
   - name: MRKLAgentPromptNode
     type: PromptNode
     params:
       model_name_or_path: DavinciModel
-      stop_words: ['Observation:']
   - name: DavinciModel
     type: PromptModel
     params:
       model_name_or_path: 'text-davinci-003'
       api_key: 'XYZ'
-  - name: SerpApi
-    type: SerpApi
+  - name: Serp
+    type: SerpAPIComponent
     params:
-      description: 'useful for when you need to answer questions about current events. You should ask targeted questions'
+      api_key: 'XYZ'
   - name: CalculatorInput
     type: PromptNode
     params:
       model_name_or_path: DavinciModel
-      stop_words: ['stop']
       default_prompt_template: CalculatorTemplate
   - name: Calculator
-    type: Calculator
-    params:
-      description: 'useful for when you need to answer questions about math'
-  - name: SQLDBReaderInput
-    type: PromptNode
-    params:
-      model_name_or_path: DavinciModel
-      default_prompt_template: SQLDBReaderTemplate
-      stop_words: ['stop']
-  - name: SQLDBReader
-    type: SQLDBReader
-    params:
-      description: 'useful for when you need to answer questions about FooBar. Input should be in the form of a question containing full context'
-  - name: SQLDBReaderTemplate
-    type: PromptTemplate
-    params:
-      name: "text-to-sql"
-      prompt_text: "Please transform this question into an SQL query and send it to the database. There is a table with title x and columns y, z. Question: $questions; Answer:"
+    type: PythonRuntime
   - name: CalculatorTemplate
     type: PromptTemplate
     params:
-      name: "text-to-python-code"
-      prompt_text: "You are GPT-3, and you can't do math. You can do basic math..."
-
+      name: calculator
+      prompt_text:  |
+          # Write a simple python function that calculates
+          # $query
+          # Do not print the result; invoke the function and assign the result to final_result variable
+          # Start with import statement
 
 pipelines:
   - name: mrkl_query_pipeline
@@ -59,7 +43,7 @@ pipelines:
         inputs: [Query]
   - name: serpapi_pipeline
     nodes:
-      - name: SerpApi
+      - name: Serp
         inputs: [Query]
   - name: calculator_pipeline
     nodes:
@@ -67,9 +51,3 @@ pipelines:
         inputs: [Query]
       - name: Calculator
         inputs: [CalculatorInput]
-  - name: sqldbreader_pipeline
-    nodes:
-      - name: SQLDBReaderInput
-        inputs: [Query]
-      - name: SQLDBReader
-        inputs: [SQLDBReaderInput]

@@ -5,3 +5,4 @@ from haystack.nodes.other.join_answers import JoinAnswers
 from haystack.nodes.other.join import JoinNode
 from haystack.nodes.other.document_merger import DocumentMerger
 from haystack.nodes.other.python_runtime import PythonRuntime
+from haystack.nodes.other.serpapi import SerpAPIComponent

@@ -49,7 +49,8 @@ class MRKLAgent(BaseComponent):
             action = pred["results"]
             action_input = None
             next_pipeline = self.tool_map[action]
-            observation, _ = next_pipeline.run(query=action_input)
+            result, _ = next_pipeline.run(query=action_input)
+            observation = result["output"]
             query += observation
 
     def run_batch(
@@ -87,6 +88,7 @@ class MRKLAgent(BaseComponent):
                 strict_version_check=strict_version_check,
             )
             for tool_pipeline_name in tool_pipeline_names
+            if tool_pipeline_name != "mrkl_query_pipeline"
         ]
         mrkl_agent = MRKLAgent()
         mrkl_agent.tool_map = dict(zip(tool_pipeline_names, tool_pipelines))
