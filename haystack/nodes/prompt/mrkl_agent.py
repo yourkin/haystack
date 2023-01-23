@@ -1,7 +1,9 @@
+import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Union, Any
 
 from haystack import BaseComponent, Pipeline, MultiLabel, Document
+from haystack.errors import PipelineConfigError
 from haystack.nodes import PromptNode
 from haystack.pipelines.config import (
     read_pipeline_config_from_yaml,
@@ -29,12 +31,7 @@ class MRKLAgent(BaseComponent):
 
     outgoing_edges = 1
 
-    def __init__(
-        self,
-        # pipelines: List[Pipeline],
-        pipeline_names: List[str],
-        prompt_node: PromptNode,
-    ):
+    def __init__(self, pipeline_names: List[str], prompt_node: PromptNode):
 
         """
         :param prompt_node: description
@@ -42,6 +39,7 @@ class MRKLAgent(BaseComponent):
         super().__init__()
         self.tool_map: Dict[str, Pipeline] = {}  # map action to pipelines/pipeline_names
         self.prompt_node = prompt_node
+        self.pipeline_names = pipeline_names
 
     def run(self, query: str):
         while True:
@@ -49,6 +47,7 @@ class MRKLAgent(BaseComponent):
             action = pred["results"]
             action_input = None
             next_pipeline = self.tool_map[action]
+            # TODO add action that breaks out of the loop
             result, _ = next_pipeline.run(query=action_input)
             observation = result["output"]
             query += observation
@@ -63,7 +62,7 @@ class MRKLAgent(BaseComponent):
         params: Optional[dict] = None,
         debug: Optional[bool] = None,
     ):
-        pass
+        raise NotImplementedError()
 
     @classmethod
     def load_from_yaml(
@@ -79,7 +78,7 @@ class MRKLAgent(BaseComponent):
         be passed.
         """
         config = read_pipeline_config_from_yaml(path)
-        tool_pipeline_names = [p["name"] for p in config["pipelines"]]
+        tool_pipeline_names = [p["name"] for p in config["pipelines"] if p["name"] != pipeline_name]
         tool_pipelines = [
             Pipeline.load_from_config(
                 pipeline_config=config,
@@ -88,10 +87,30 @@ class MRKLAgent(BaseComponent):
                 strict_version_check=strict_version_check,
             )
             for tool_pipeline_name in tool_pipeline_names
-            if tool_pipeline_name != "mrkl_query_pipeline"
         ]
-        mrkl_agent = MRKLAgent()
-        mrkl_agent.tool_map = dict(zip(tool_pipeline_names, tool_pipelines))
+        mrkl_pipeline = Pipeline.load_from_config(
+            pipeline_config=config,
+            pipeline_name=pipeline_name,
+            overwrite_with_env_variables=overwrite_with_env_variables,
+            strict_version_check=strict_version_check,
+        )
+        mrkl_agent_nodes = [node for node in mrkl_pipeline.components.values() if isinstance(node, MRKLAgent)]
+        if len(mrkl_agent_nodes) == 0:
+            raise PipelineConfigError(
+                f"The loaded pipeline {pipeline_name} contains no MRKLAgent node. Please use a pipeline that contains such a node if you want to load it as a MRKLAgent."
+            )
+        elif len(mrkl_agent_nodes) > 1:
+            raise PipelineConfigError(
+                f"The loaded pipeline {pipeline_name} contains more than one MRKLAgent node. Please use a pipeline that contains exactly one such node if you want to load it as a MRKLAgent."
+            )
+
+        mrkl_agent = mrkl_agent_nodes[0]
+
+        # The loaded YAML might contain more pipelines than we want to use in the MRKLAgent
+        # Add only those tool pipelines to the agent's tool map that are explicitly specified in the MRKLAgent's parameter in the YAML
+        mrkl_agent.tool_map = {
+            pn: p for (pn, p) in zip(tool_pipeline_names, tool_pipelines) if pn in mrkl_agent.pipeline_names
+        }
         return mrkl_agent
 
     @classmethod
