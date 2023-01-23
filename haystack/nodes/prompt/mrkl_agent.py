@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Union, Any
+from typing import List, Dict, Optional, Union, Any, Tuple
 
 from haystack import BaseComponent, Pipeline, MultiLabel, Document
 from haystack.errors import PipelineConfigError
@@ -42,12 +42,41 @@ class MRKLAgent(BaseComponent):
         self.pipeline_names = pipeline_names
 
     def run(self, query: str):
+
+        tools = [
+            {"name": "Calculator", "description": "useful for when you need to answer questions about math"},
+            {
+                "name": "Search",
+                "description": "useful for when you need to answer questions about current events. You should ask targeted questions",
+            },
+        ]
+        tool_strings = "\n".join([f"{tool['name']}: {tool['description']}" for tool in tools])
+        tool_names = ", ".join([tool["name"] for tool in tools])
+
+        agent_scratchpad = ""
+        prefix = """Answer the following questions as best as you can. You have access to the following tools:"""
+        format_instructions = f"""Use the following format:
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question"""
+        suffix = f"""Begin!
+Question: {query}
+Thought: {agent_scratchpad}
+        """
+
+        template = "\n\n".join([prefix, tool_strings, format_instructions, suffix])
+
         while True:
-            pred, _ = self.prompt_node.run(query=query)
-            action = pred["results"]
-            action_input = None
+            pred = self.prompt_node(template)
+            action, action_input = self.get_action_and_input(llm_output=pred[0])
+            if action == "Final Answer":
+                return action_input
             next_pipeline = self.tool_map[action]
-            # TODO add action that breaks out of the loop
             result, _ = next_pipeline.run(query=action_input)
             observation = result["output"]
             query += observation
@@ -149,3 +178,19 @@ class MRKLAgent(BaseComponent):
             pipeline.add_node(component=component, name=node_config["name"], inputs=node_config["inputs"])
 
         return pipeline
+
+    def get_action_and_input(self, llm_output: str) -> Tuple[str, str]:
+        """Parse out the action and input from the LLM output."""
+        FINAL_ANSWER_ACTION = "Final Answer: "
+
+        ps = [p for p in llm_output.split("\n") if p]
+        if ps[-1].startswith("Final Answer"):
+            directive = ps[-1][len(FINAL_ANSWER_ACTION) :]
+            return "Final Answer", directive
+        if not ps[-1].startswith("Action Input: "):
+            raise ValueError("The last line does not have an action input, " "something has gone terribly wrong.")
+        if not ps[-2].startswith("Action: "):
+            raise ValueError("The second to last line does not have an action, " "something has gone terribly wrong.")
+        action = ps[-2][len("Action: ") :]
+        action_input = ps[-1][len("Action Input: ") :]
+        return action, action_input.strip(" ").strip('"')
