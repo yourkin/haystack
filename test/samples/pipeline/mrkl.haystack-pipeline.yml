@@ -5,11 +5,12 @@ components:
     type: MRKLAgent
     params:
       prompt_node: MRKLAgentPromptNode
-      pipeline_names: ['serpapi_pipeline', 'calculator_pipeline']
+      tools: [{'pipeline_name': 'serpapi_pipeline', 'tool_name': 'Search', 'description': 'useful for when you need to answer questions about current events. You should ask targeted questions'}, {'pipeline_name': 'calculator_pipeline', 'tool_name': 'Calculator', 'description': 'useful for when you need to answer questions about math'}]
   - name: MRKLAgentPromptNode
     type: PromptNode
     params:
       model_name_or_path: DavinciModel
+      stop_words: ['Observation:']
   - name: DavinciModel
     type: PromptModel
     params:

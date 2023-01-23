@@ -35,11 +35,12 @@ def test_run_agent(tmp_path):
                 type: MRKLAgent
                 params:
                   prompt_node: MRKLAgentPromptNode
-                  pipeline_names: ['serpapi_pipeline', 'calculator_pipeline']
+                  tools: [{{'pipeline_name': 'serpapi_pipeline', 'tool_name': 'Search', 'description': 'useful for when you need to answer questions about current events. You should ask targeted questions'}}, {{'pipeline_name': 'calculator_pipeline', 'tool_name': 'Calculator', 'description': 'useful for when you need to answer questions about math'}}]
               - name: MRKLAgentPromptNode
                 type: PromptNode
                 params:
                   model_name_or_path: DavinciModel
+                  stop_words: ['Observation:']
               - name: DavinciModel
                 type: PromptModel
                 params:
@@ -82,6 +83,7 @@ def test_run_agent(tmp_path):
                   - name: Calculator
                     inputs: [CalculatorInput]
 
+
         """
         )
     mrkl_agent = MRKLAgent.load_from_yaml(
@@ -89,3 +91,8 @@ def test_run_agent(tmp_path):
     )
     result = mrkl_agent.run(query="What is 2 to the power of 3?")
     assert result == "2 to the power of 3 is 8."
+
+
+def test_run_agent_programmatically():
+    # todo add nodes and create pipelines programmatically (no yaml)
+    pass

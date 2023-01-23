@@ -31,27 +31,25 @@ class MRKLAgent(BaseComponent):
 
     outgoing_edges = 1
 
-    def __init__(self, pipeline_names: List[str], prompt_node: PromptNode):
+    def __init__(
+        self, prompt_node: PromptNode, tools: List[Dict[str, str]], tool_map: Optional[Dict[str, Pipeline]] = None
+    ):
 
         """
         :param prompt_node: description
+        :param tools: example {'pipeline_name': 'serpapi_pipeline', 'tool_name': 'Search', 'description': 'useful for when...'}
         """
         super().__init__()
-        self.tool_map: Dict[str, Pipeline] = {}  # map action to pipelines/pipeline_names
         self.prompt_node = prompt_node
-        self.pipeline_names = pipeline_names
+        self.tools = tools
+        if tool_map is not None:
+            self.tool_map = tool_map
+        else:
+            self.tool_map: Dict[str, Pipeline] = {}
 
     def run(self, query: str):
-
-        tools = [
-            {"name": "Calculator", "description": "useful for when you need to answer questions about math"},
-            {
-                "name": "Search",
-                "description": "useful for when you need to answer questions about current events. You should ask targeted questions",
-            },
-        ]
-        tool_strings = "\n".join([f"{tool['name']}: {tool['description']}" for tool in tools])
-        tool_names = ", ".join([tool["name"] for tool in tools])
+        tool_strings = "\n".join([f"{tool['tool_name']}: {tool['description']}" for tool in self.tools])
+        tool_names = ", ".join([tool["tool_name"] for tool in self.tools])
 
         agent_scratchpad = ""
         prefix = """Answer the following questions as best as you can. You have access to the following tools:"""
@@ -107,16 +105,6 @@ Thought: {agent_scratchpad}
         be passed.
         """
         config = read_pipeline_config_from_yaml(path)
-        tool_pipeline_names = [p["name"] for p in config["pipelines"] if p["name"] != pipeline_name]
-        tool_pipelines = [
-            Pipeline.load_from_config(
-                pipeline_config=config,
-                pipeline_name=tool_pipeline_name,
-                overwrite_with_env_variables=overwrite_with_env_variables,
-                strict_version_check=strict_version_check,
-            )
-            for tool_pipeline_name in tool_pipeline_names
-        ]
         mrkl_pipeline = Pipeline.load_from_config(
             pipeline_config=config,
             pipeline_name=pipeline_name,
@@ -135,11 +123,20 @@ Thought: {agent_scratchpad}
 
         mrkl_agent = mrkl_agent_nodes[0]
 
+        tool_pipeline_names = [tool["pipeline_name"] for tool in mrkl_agent.tools]
+        tool_pipelines = [
+            Pipeline.load_from_config(
+                pipeline_config=config,
+                pipeline_name=tool["pipeline_name"],
+                overwrite_with_env_variables=overwrite_with_env_variables,
+                strict_version_check=strict_version_check,
+            )
+            for tool in mrkl_agent.tools
+        ]
+
         # The loaded YAML might contain more pipelines than we want to use in the MRKLAgent
         # Add only those tool pipelines to the agent's tool map that are explicitly specified in the MRKLAgent's parameter in the YAML
-        mrkl_agent.tool_map = {
-            pn: p for (pn, p) in zip(tool_pipeline_names, tool_pipelines) if pn in mrkl_agent.pipeline_names
-        }
+        mrkl_agent.tool_map = dict(zip(tool_pipeline_names, tool_pipelines))
         return mrkl_agent
 
     @classmethod
