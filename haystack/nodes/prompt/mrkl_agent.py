@@ -14,18 +14,92 @@ from haystack.pipelines.config import (
 
 class MRKLAgent(BaseComponent):
     """
-    Load tools as pipelines from YAML file.
+    The MRKLAgent class answers queries by choosing between different actions/tools, which are implemented as pipelines.
+    It uses a large language model (LLM) to generate a thought based on the query, choose an action/tool, and generate the input for the action/tool.
+    Based on the result returned by an action/tool, the MRKLAgent has two options.
+    It can either repeat the process of 1) thought, 2) action choice, 3) action input or it stops if it knows the answer.
 
-    **Methods:**
-    init() with list of pipelines, promptnode
-    load_from_yaml()
+    The MRKLAgent can be used for questions that contain multiple subquestions that can be answered step-by-step (Multihop QA).
+    Combined with tools like Haystack's PythonRuntime or SerpAPIComponent, the MRKLAgent can query the web and do calculations.
+    For example, the query "Who is Olivia Wilde's boyfriend? What is his current age raised to the 0.23 power?" can be broken down into three steps:
+    1) Searching the web for the name of Olivia Wilde's boyfriend
+    2) Searching the web for the age of that boyfriend
+    3) Calculating that age raised to the 0.23 power
 
-    **Example:**
-    self.tool_map: hashmap
-    while
-      use promptnode to select tool from action and action_input
-      pass action_input into tool returned from map
-      get observation
+    The MRKLAgent can be either created programmatically or loaded from a YAML file.
+
+    **Example programmatic creation:**
+        prompt_model = PromptModel(model_name_or_path="text-davinci-003", api_key=os.environ.get("OPENAI_API_KEY"))
+        prompt_node = PromptNode(model_name_or_path=prompt_model, stop_words=["Observation:"])
+        search = SerpAPIComponent(api_key=os.environ.get("SERPAPI_API_KEY"))
+        search_pipeline = Pipeline()
+        search_pipeline.add_node(component=search, name="Serp", inputs=["Query"])
+
+        tools = [
+            {
+                "pipeline_name": "serpapi_pipeline",
+                "tool_name": "Search",
+                "description": "useful for when you need to answer questions about current events. You should ask targeted questions",
+            }
+        ]
+        tool_map = {"Search": search_pipeline}
+        mrkl_agent = MRKLAgent(prompt_node=prompt_node, tools=tools, tool_map=tool_map)
+        result = mrkl_agent.run(query="What is 2 to the power of 3?")
+
+    **Example YAML file:**
+        version: ignore
+        components:
+          - name: MRKLAgent
+            type: MRKLAgent
+            params:
+              prompt_node: MRKLAgentPromptNode
+              tools: [{'pipeline_name': 'serpapi_pipeline', 'tool_name': 'Search', 'description': 'useful for when you need to answer questions about current events. You should ask targeted questions'}, {'pipeline_name': 'calculator_pipeline', 'tool_name': 'Calculator', 'description': 'useful for when you need to answer questions about math'}]
+          - name: MRKLAgentPromptNode
+            type: PromptNode
+            params:
+              model_name_or_path: DavinciModel
+              stop_words: ['Observation:']
+          - name: DavinciModel
+            type: PromptModel
+            params:
+              model_name_or_path: 'text-davinci-003'
+              api_key: 'XYZ'
+          - name: Serp
+            type: SerpAPIComponent
+            params:
+              api_key: 'XYZ'
+          - name: CalculatorInput
+            type: PromptNode
+            params:
+              model_name_or_path: DavinciModel
+              default_prompt_template: CalculatorTemplate
+              output_variable: python_runtime_input
+          - name: Calculator
+            type: PythonRuntime
+          - name: CalculatorTemplate
+            type: PromptTemplate
+            params:
+              name: calculator
+              prompt_text:  |
+                  # Write a simple python function that calculates
+                  # $query
+                  # Do not print the result; invoke the function and assign the result to final_result variable
+                  # Start with import statement
+        pipelines:
+          - name: mrkl_query_pipeline
+            nodes:
+              - name: MRKLAgent
+                inputs: [Query]
+          - name: serpapi_pipeline
+            nodes:
+              - name: Serp
+                inputs: [Query]
+          - name: calculator_pipeline
+            nodes:
+              - name: CalculatorInput
+                inputs: [Query]
+              - name: Calculator
+                inputs: [CalculatorInput]
     """
 
     outgoing_edges = 1
@@ -35,8 +109,9 @@ class MRKLAgent(BaseComponent):
     ):
 
         """
-        :param prompt_node: description
-        :param tools: example {'pipeline_name': 'serpapi_pipeline', 'tool_name': 'Search', 'description': 'useful for when...'}
+        :param prompt_node: The PromptNode that shall be used to generate thoughts, actions and action inputs
+        :param tools: A description of the tools that the agent can use. For each tool, the pipeline name, the name of the tool/action and a description of what the tool is useful for is required. The expected format is a List of Dictionary. Example: {'pipeline_name': 'serpapi_pipeline', 'tool_name': 'Search', 'description': 'useful for when...'}
+        :param tool_map: A map from name of a tool/action to the pipeline that implements it and can be called to run it. Optional parameter that is not needed in YAML files but only if a MRKLAgent is created programmatically.
         """
         super().__init__()
         self.prompt_node = prompt_node
@@ -46,40 +121,39 @@ class MRKLAgent(BaseComponent):
         else:
             self.tool_map: Dict[str, Pipeline] = {}
 
-    def run(self, query: str):
-        tool_strings = "\n".join([f"{tool['tool_name']}: {tool['description']}" for tool in self.tools])
         tool_names = ", ".join([tool["tool_name"] for tool in self.tools])
+        tool_names_with_description = "\n".join([f"{tool['tool_name']}: {tool['description']}" for tool in self.tools])
 
-        agent_scratchpad = ""
-        prefix = """Answer the following questions as best as you can. You have access to the following tools:"""
-        format_instructions = f"""Use the following format:
-Question: the input question you must answer
-Thought: you should always think about what to do
-Action: the action to take, should be one of [{tool_names}]
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question"""
-        suffix = f"""Begin!
-Question: $query
-Thought: {agent_scratchpad}"""
-        # Question: {query}
+        prefix = "Answer the following questions as best as you can. You have access to the following tools:"
+        format_instructions = (
+            "Use the following format:\n\n"
+            "Question: the input question you must answer\n"
+            "Thought: you should always think about what to do\n"
+            f"Action: the action to take, should be one of [{tool_names}]\n"
+            "Action Input: the input to the action\n"
+            "Observation: the result of the action\n"
+            "... (this Thought/Action/Action Input/Observation can repeat N times)\n"
+            "Thought: I now know the final answer\n"
+            "Final Answer: the final answer to the original input question"
+        )
+        suffix = "Begin!\n" "Question: $query\n" "Thought: "
+        self.template = "\n\n".join([prefix, tool_names_with_description, format_instructions, suffix])
 
-        template = "\n\n".join([prefix, tool_strings, format_instructions, suffix])
-
+    def run(self, query: str):
+        # TODO align return format with BaseComponent.run(...) -> Tuple[Dict, str]
+        notes = self.template
         while True:
             # pred = self.prompt_node(text)
-            prompt_template = PromptTemplate("t1", template, ["query"])
+            prompt_template = PromptTemplate("t1", notes, ["query"])
             pred = self.prompt_node.prompt(prompt_template=prompt_template, query=query)
-            template += str(pred[0]) + "\n"
+            notes += str(pred[0]) + "\n"
             action, action_input = self.get_action_and_input(llm_output=pred[0])
             if action == "Final Answer":
-                return template, action_input  # TODO $query is not replaced
+                return notes, action_input  # TODO $query is not replaced
             next_pipeline = self.tool_map[action]
             result = next_pipeline.run(query=action_input)
             observation = result["output"]
-            template += "Observation: " + str(observation) + "\n"
+            notes += "Observation: " + str(observation) + "\nThought: "
 
     def run_batch(
         self,
