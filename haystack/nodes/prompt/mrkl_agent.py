@@ -1,10 +1,9 @@
-import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Union, Any, Tuple
 
 from haystack import BaseComponent, Pipeline, MultiLabel, Document
 from haystack.errors import PipelineConfigError
-from haystack.nodes import PromptNode
+from haystack.nodes import PromptNode, PromptTemplate
 from haystack.pipelines.config import (
     read_pipeline_config_from_yaml,
     validate_config,
@@ -63,21 +62,24 @@ Observation: the result of the action
 Thought: I now know the final answer
 Final Answer: the final answer to the original input question"""
         suffix = f"""Begin!
-Question: {query}
-Thought: {agent_scratchpad}
-        """
+Question: $query
+Thought: {agent_scratchpad}"""
+        # Question: {query}
 
         template = "\n\n".join([prefix, tool_strings, format_instructions, suffix])
 
         while True:
-            pred = self.prompt_node(template)
+            # pred = self.prompt_node(text)
+            prompt_template = PromptTemplate("t1", template, ["query"])
+            pred = self.prompt_node.prompt(prompt_template=prompt_template, query=query)
+            template += str(pred[0]) + "\n"
             action, action_input = self.get_action_and_input(llm_output=pred[0])
             if action == "Final Answer":
-                return action_input
+                return template, action_input  # TODO $query is not replaced
             next_pipeline = self.tool_map[action]
-            result, _ = next_pipeline.run(query=action_input)
+            result = next_pipeline.run(query=action_input)
             observation = result["output"]
-            query += observation
+            template += "Observation: " + str(observation) + "\n"
 
     def run_batch(
         self,
@@ -98,11 +100,15 @@ Thought: {agent_scratchpad}
         pipeline_name: Optional[str] = None,
         overwrite_with_env_variables: bool = True,
         strict_version_check: bool = False,
-    ):
+    ) -> "MRKLAgent":
         """
         Load Pipeline from a YAML file defining the individual components and how they're tied together to form
-        a Pipeline. A single YAML can declare multiple Pipelines, in which case an explicit `pipeline_name` must
-        be passed.
+        a Pipeline. A single YAML can declare multiple Pipelines, one containing a MRKLAgent and all others as tools for that agent.
+
+        :param path: Path to the YAML file to load
+        :param pipeline_name: The name of the pipeline to load. That pipeline must contain a MRKLAgent.
+        :param overwrite_with_env_variables: Overwrite the configuration with environment variables. For example, to change index name param for an ElasticsearchDocumentStore, an env variable 'MYDOCSTORE_PARAMS_INDEX=documents-2021' can be set. Note that an `_` sign must be used to specify nested hierarchical properties.
+        :param strict_version_check: whether to fail in case of a version mismatch (throws a warning otherwise).
         """
         config = read_pipeline_config_from_yaml(path)
         mrkl_pipeline = Pipeline.load_from_config(
@@ -123,7 +129,7 @@ Thought: {agent_scratchpad}
 
         mrkl_agent = mrkl_agent_nodes[0]
 
-        tool_pipeline_names = [tool["pipeline_name"] for tool in mrkl_agent.tools]
+        tool_names = [tool["tool_name"] for tool in mrkl_agent.tools]
         tool_pipelines = [
             Pipeline.load_from_config(
                 pipeline_config=config,
@@ -132,11 +138,11 @@ Thought: {agent_scratchpad}
                 strict_version_check=strict_version_check,
             )
             for tool in mrkl_agent.tools
+            # The loaded YAML might contain more pipelines than we want to use in the MRKLAgent
+            # Here, we collect only those pipelines that are explicitly specified in the MRKLAgent's tools parameter in the YAML
         ]
 
-        # The loaded YAML might contain more pipelines than we want to use in the MRKLAgent
-        # Add only those tool pipelines to the agent's tool map that are explicitly specified in the MRKLAgent's parameter in the YAML
-        mrkl_agent.tool_map = dict(zip(tool_pipeline_names, tool_pipelines))
+        mrkl_agent.tool_map = dict(zip(tool_names, tool_pipelines))
         return mrkl_agent
 
     @classmethod
@@ -146,7 +152,7 @@ Thought: {agent_scratchpad}
         pipeline_name: Optional[str] = None,
         overwrite_with_env_variables: bool = True,
         strict_version_check: bool = False,
-    ):
+    ) -> Pipeline:
         """
         Load Pipeline from a config dict defining the individual components and how they're tied together to form
         a Pipeline. A single config can declare multiple Pipelines, in which case an explicit `pipeline_name` must
@@ -160,7 +166,7 @@ Thought: {agent_scratchpad}
                                              `_` sign must be used to specify nested hierarchical properties.
         :param strict_version_check: whether to fail in case of a version mismatch (throws a warning otherwise).
         """
-        # validate_config(pipeline_config, strict_version_check=strict_version_check)
+        # validate_config(pipeline_config, strict_version_check=strict_version_check) # TODO reenable yaml validation
         pipeline = Pipeline()
 
         pipeline_definition = get_pipeline_definition(pipeline_config=pipeline_config, pipeline_name=pipeline_name)

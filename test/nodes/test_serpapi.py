@@ -8,7 +8,7 @@ from haystack.nodes.other.serpapi import SerpAPIComponent
 
 @pytest.mark.skipif(
     not os.environ.get("SERPAPI_API_KEY", None),
-    reason="Please export an env var called SERP_API_KEY containing the SERP API key to run this test.",
+    reason="Please export an env var called SERPAPI_API_KEY containing the SERP API key to run this test.",
 )
 def test_serp_api():
     search = SerpAPIComponent(api_key=os.environ.get("SERPAPI_API_KEY"))
@@ -18,7 +18,7 @@ def test_serp_api():
 
 @pytest.mark.skipif(
     not os.environ.get("SERPAPI_API_KEY", None),
-    reason="Please export an env var called SERP_API_KEY containing the SERP API key to run this test.",
+    reason="Please export an env var called SERPAPI_API_KEY containing the SERP API key to run this test.",
 )
 def test_serpapi_pipeline(tmp_path):
     api_key = os.environ.get("SERPAPI_API_KEY", None)

@@ -2,7 +2,7 @@ import pytest
 import os
 
 from haystack import Pipeline
-from haystack.nodes import SerpAPIComponent, PythonRuntime
+from haystack.nodes import SerpAPIComponent, PythonRuntime, PromptNode, PromptModel
 from haystack.nodes.prompt.mrkl_agent import MRKLAgent
 
 from ..conftest import SAMPLES_PATH
@@ -21,11 +21,13 @@ def test_load_agent():
 
 
 @pytest.mark.skipif(
-    not os.environ.get("OPENAI_API_KEY", None),
-    reason="Please export an env var called OPENAI_API_KEY containing the OpenAI API key to run this test.",
+    not os.environ.get("OPENAI_API_KEY", None) or not os.environ.get("SERPAPI_API_KEY", None),
+    reason="Please export an env var called OPENAI_API_KEY containing the OpenAI API key and an env var called SERPAPI_API_KEY containing the SERP API key to run this test.",
 )
+@pytest.mark.integration
 def test_run_agent(tmp_path):
-    api_key = os.environ.get("OPENAI_API_KEY", None)
+    openai_api_key = os.environ.get("OPENAI_API_KEY", None)
+    serp_api_key = os.environ.get("SERPAPI_API_KEY", None)
     with open(tmp_path / "test.mrkl.haystack-pipeline.yml", "w") as tmp_file:
         tmp_file.write(
             f"""
@@ -45,16 +47,17 @@ def test_run_agent(tmp_path):
                 type: PromptModel
                 params:
                   model_name_or_path: 'text-davinci-003'
-                  api_key: {api_key}
+                  api_key: {openai_api_key}
               - name: Serp
                 type: SerpAPIComponent
                 params:
-                  api_key: 'XYZ'
+                  api_key: {serp_api_key}
               - name: CalculatorInput
                 type: PromptNode
                 params:
                   model_name_or_path: DavinciModel
                   default_prompt_template: CalculatorTemplate
+                  output_variable: python_runtime_input
               - name: Calculator
                 type: PythonRuntime
               - name: CalculatorTemplate
@@ -83,16 +86,40 @@ def test_run_agent(tmp_path):
                   - name: Calculator
                     inputs: [CalculatorInput]
 
-
         """
         )
     mrkl_agent = MRKLAgent.load_from_yaml(
         tmp_path / "test.mrkl.haystack-pipeline.yml", pipeline_name="mrkl_query_pipeline"
     )
     result = mrkl_agent.run(query="What is 2 to the power of 3?")
-    assert result == "2 to the power of 3 is 8."
+    assert result[1] == "2 to the power of 3 is 8."
+
+    # result = mrkl_agent.run(query="Who is Olivia Wilde's boyfriend? What is his current age raised to the 0.23 power?")
+    # assert "Harry Styles" in result[1] and "2.15" in result[1]
 
 
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY", None) or not os.environ.get("SERPAPI_API_KEY", None),
+    reason="Please export an env var called OPENAI_API_KEY containing the OpenAI API key and an env var called SERPAPI_API_KEY containing the SERP API key to run this test.",
+)
+@pytest.mark.integration
 def test_run_agent_programmatically():
-    # todo add nodes and create pipelines programmatically (no yaml)
-    pass
+    prompt_model = PromptModel(model_name_or_path="text-davinci-003", api_key=os.environ.get("OPENAI_API_KEY"))
+    prompt_node = PromptNode(model_name_or_path=prompt_model, stop_words=["Observation:"])
+
+    search = SerpAPIComponent(api_key=os.environ.get("SERPAPI_API_KEY"))
+    search_pipeline = Pipeline()
+    search_pipeline.add_node(component=search, name="Serp", inputs=["Query"])
+
+    tools = [
+        {
+            "pipeline_name": "serpapi_pipeline",
+            "tool_name": "Search",
+            "description": "useful for when you need to answer questions about current events. You should ask targeted questions",
+        }
+    ]
+    tool_map = {"Search": search_pipeline}
+    mrkl_agent = MRKLAgent(prompt_node=prompt_node, tools=tools, tool_map=tool_map)
+
+    result = mrkl_agent.run(query="What is 2 to the power of 3?")
+    assert "8" in result[1]

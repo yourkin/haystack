@@ -25,6 +25,7 @@ components:
     params:
       model_name_or_path: DavinciModel
       default_prompt_template: CalculatorTemplate
+      output_variable: python_runtime_input
   - name: Calculator
     type: PythonRuntime
   - name: CalculatorTemplate
