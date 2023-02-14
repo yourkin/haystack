@@ -19,7 +19,7 @@ jobs:
           --cloud aws \
           --cloud-region us-west \
           --cloud-type=p3.2xlarge \
-          --label=cml-runner
+          --labels=cml-runner
 
   run-benchmark:
     needs: deploy-runner
