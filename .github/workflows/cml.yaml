@@ -20,6 +20,7 @@ jobs:
           --cloud gcp \
           --cloud-region eu-north \
           --cloud-type=nvidia-tesla-t4 \
+          --log=debug \
           --labels=cml-runner
 
   run-benchmark:
