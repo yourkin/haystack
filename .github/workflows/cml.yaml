@@ -28,23 +28,23 @@ jobs:
   run-benchmark:
     needs: deploy-runner
     runs-on: [self-hosted, cml-runner]
+    container:
+      image: docker://iterativeai/cml:0-dvc2-base1-gpu
+      options: --gpus all
     steps:
       - uses: actions/checkout@v3
 
-      - name: cml_run
-        env:
-          repo_token: ${{ secrets.HAYSTACK_BOT_TOKEN }}
+      - name: Install Haystack
+        run: pip install .
+
+      - name: Run benchmarks
         run: |
-          apt-get update -y
-          apt-get install python3-dev -y
-          pip install .[elasticsearch,faiss,milvus,weaviate,graphdb,ray,rest,ui,dev]
-          cd test/benchmarks && python run.py --retriever_index --retriever_query --reader --ci --save_markdown
-          {
-            echo -en "## Benchmarks: Retriever Indexing\n"
-            cat retriever_index_results.md
-            echo -en "\n\n## Benchmarks: Retriever Querying\n"
-            cat retriever_query_results.md
-            echo -en "\n\n## Benchmarks: Reader\n"
-            cat reader_results.md
-          } >> report.md
-          cml-send-comment report.md
+          python ./test/benchmarks/run.py \
+          --retriever-configs ./test/benchmarks/configs/retriever/ \
+          --reader-configs ./test/benchmarks/configs/reader/ \
+          --result-file report.json
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-report.json
+          path: report.json
