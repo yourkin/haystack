@@ -1,0 +1,25 @@
+version: ignore
+
+components:
+  - name: DocumentStore
+    type: OpenSearchDocumentStore
+  - name: Retriever
+    type: BM25Retriever
+    params:
+      document_store: DocumentStore
+      top_k: 10
+
+pipelines:
+  - name: indexing
+    nodes:
+      - name: DocumentStore
+        inputs: [File]
+  - name: querying
+    nodes:
+      - name: Retriever
+        inputs: [Query]
+
+benchmark_config:
+  n_docs: 1000
+  documents_file: "https://ext-haystack-retriever-eval.s3-eu-west-1.amazonaws.com/psgs_w100_minus_gold_10k.tsv"
+  labels_file: "https://ext-haystack-retriever-eval.s3-eu-west-1.amazonaws.com/nq2squad-dev.json"

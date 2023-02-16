@@ -1,0 +1,28 @@
+version: ignore
+
+components:
+  - name: DocumentStore
+    type: ElasticsearchDocumentStore
+  - name: Retriever
+    type: EmbeddingRetriever
+    params:
+      document_store: DocumentStore
+      model_name_or_path: sentence-transformers/multi-qa-mpnet-base-dot-v1
+      top_k: 10
+
+pipelines:
+  - name: indexing
+    nodes:
+      - name: Retriever
+        inputs: [File]
+      - name: DocumentStore
+        inputs: [Retriever]
+  - name: querying
+    nodes:
+      - name: Retriever
+        inputs: [Query]
+
+benchmark_config:
+  n_docs: 500000
+  documents_file: "https://ext-haystack-retriever-eval.s3-eu-west-1.amazonaws.com/psgs_w100_minus_gold_1m.tsv"
+  labels_file: "https://ext-haystack-retriever-eval.s3-eu-west-1.amazonaws.com/nq2squad-dev.json"

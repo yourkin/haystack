@@ -1,0 +1,16 @@
+version: ignore
+
+components:
+  - name: Reader
+    type: FARMReader
+    params:
+      model_name_or_path: deepset/minilm-uncased-squad2
+
+pipelines:
+  - name: querying
+    nodes:
+      - name: Reader
+        inputs: [Query]
+
+benchmark_config:
+  labels_file: data/squad20/dev-v2.0.json

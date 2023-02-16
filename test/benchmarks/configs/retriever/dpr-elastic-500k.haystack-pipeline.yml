@@ -1,0 +1,29 @@
+version: ignore
+
+components:
+  - name: DocumentStore
+    type: ElasticsearchDocumentStore
+  - name: Retriever
+    type: DensePassageRetriever
+    params:
+      document_store: DocumentStore
+      query_embedding_model: facebook/dpr-question_encoder-single-nq-base
+      passage_embedding_model: facebook/dpr-ctx_encoder-single-nq-base
+      top_k: 10
+
+pipelines:
+  - name: indexing
+    nodes:
+      - name: Retriever
+        inputs: [File]
+      - name: DocumentStore
+        inputs: [Retriever]
+  - name: querying
+    nodes:
+      - name: Retriever
+        inputs: [Query]
+
+benchmark_config:
+  n_docs: 500000
+  documents_file: "https://ext-haystack-retriever-eval.s3-eu-west-1.amazonaws.com/psgs_w100_minus_gold_1m.tsv"
+  labels_file: "https://ext-haystack-retriever-eval.s3-eu-west-1.amazonaws.com/nq2squad-dev.json"
