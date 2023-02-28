@@ -7,7 +7,7 @@ import numpy as np
 
 from haystack.document_stores import KeywordDocumentStore
 from haystack.errors import HaystackError
-from haystack.schema import Document, Label
+from haystack.schema import Document, FilterType, Label
 from haystack.utils import DeepsetCloud, DeepsetCloudError, args_to_kwargs
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         return_embedding: bool = False,
         label_index: str = "default",
         embedding_dim: int = 768,
+        use_prefiltering: bool = False,
     ):
         """
         A DocumentStore facade enabling you to interact with the documents stored in deepset Cloud.
@@ -86,6 +87,9 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         :param label_index: index for the evaluation set interface
         :param return_embedding: To return document embedding.
         :param embedding_dim: Specifies the dimensionality of the embedding vector (only needed when using a dense retriever, for example, DensePassageRetriever pr EmbeddingRetriever, on top).
+        :param use_prefiltering: By default, DeepsetCloudDocumentStore uses post-filtering when querying with filters.
+                                 To use pre-filtering instead, set this parameter to `True`. Note that pre-filtering
+                                 comes at the cost of higher latency.
         """
         self.index = index
         self.label_index = label_index
@@ -93,6 +97,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         self.similarity = similarity
         self.return_embedding = return_embedding
         self.embedding_dim = embedding_dim
+        self.use_prefiltering = use_prefiltering
         self.client = DeepsetCloud.get_index_client(
             api_key=api_key, api_endpoint=api_endpoint, workspace=workspace, index=index
         )
@@ -118,23 +123,25 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
             indexing_info = index_info["indexing"]
             if indexing_info["pending_file_count"] > 0:
                 logger.warning(
-                    f"{indexing_info['pending_file_count']} files are pending to be indexed. "
-                    f"Indexing status: {indexing_info['status']}"
+                    "%s files are pending to be indexed. Indexing status: %s",
+                    indexing_info["pending_file_count"],
+                    indexing_info["status"],
                 )
             if index in deployed_unhealthy_pipelines:
                 logger.warning(
-                    f"The index '{index}' is unhealthy and should be redeployed using "
-                    f"`Pipeline.undeploy_on_deepset_cloud()` and `Pipeline.deploy_on_deepset_cloud()`."
+                    "The index '%s' is unhealthy and should be redeployed using "
+                    "`Pipeline.undeploy_on_deepset_cloud()` and `Pipeline.deploy_on_deepset_cloud()`.",
+                    index,
                 )
         else:
             logger.info(
-                f"You are using a DeepsetCloudDocumentStore with an index that does not exist on deepset Cloud. "
-                f"This document store always returns empty responses. This can be useful if you want to "
-                f"create a new pipeline within deepset Cloud.\n"
-                f"In order to create a new pipeline on deepset Cloud, take the following steps: \n"
-                f"  - create query and indexing pipelines using this DocumentStore\n"
-                f"  - call `Pipeline.save_to_deepset_cloud()` passing the pipelines and a `pipeline_config_name`\n"
-                f"  - call `Pipeline.deploy_on_deepset_cloud()` passing the `pipeline_config_name`"
+                "You are using a DeepsetCloudDocumentStore with an index that does not exist on deepset Cloud. "
+                "This document store always returns empty responses. This can be useful if you want to "
+                "create a new pipeline within deepset Cloud.\n"
+                "In order to create a new pipeline on deepset Cloud, take the following steps: \n"
+                "  - create query and indexing pipelines using this DocumentStore\n"
+                "  - call `Pipeline.save_to_deepset_cloud()` passing the pipelines and a `pipeline_config_name`\n"
+                "  - call `Pipeline.deploy_on_deepset_cloud()` passing the `pipeline_config_name`"
             )
 
         self.evaluation_set_client = DeepsetCloud.get_evaluation_set_client(
@@ -148,7 +155,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def get_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 10_000,
         headers: Optional[Dict[str, str]] = None,
@@ -189,7 +196,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         :param batch_size: Number of documents that are passed to bulk function at a time.
         :param headers: Custom HTTP headers to pass to document store client if supported (e.g. {'Authorization': 'Basic YWRtaW46cm9vdA=='} for basic authentication)
         """
-        logging.warning(
+        logger.warning(
             "`get_all_documents()` can get very slow and resource-heavy since all documents must be loaded from deepset Cloud. "
             "Consider using `get_all_documents_generator()` instead."
         )
@@ -203,7 +210,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def get_all_documents_generator(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 10_000,
         headers: Optional[Dict[str, str]] = None,
@@ -299,7 +306,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
 
     def get_document_count(
         self,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         index: Optional[str] = None,
         only_documents_without_embedding: bool = False,
         headers: Optional[Dict[str, str]] = None,
@@ -318,7 +325,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def query_by_embedding(
         self,
         query_emb: np.ndarray,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         top_k: int = 10,
         index: Optional[str] = None,
         return_embedding: Optional[bool] = None,
@@ -417,6 +424,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
             index=index,
             scale_score=scale_score,
             headers=headers,
+            use_prefiltering=self.use_prefiltering,
         )
         docs = [Document.from_dict(doc) for doc in doc_dicts]
         return docs
@@ -424,7 +432,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def query(
         self,
         query: Optional[str],
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         top_k: int = 10,
         custom_query: Optional[str] = None,
         index: Optional[str] = None,
@@ -533,12 +541,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def query_batch(
         self,
         queries: List[str],
-        filters: Optional[
-            Union[
-                Dict[str, Union[Dict, List, str, int, float, bool]],
-                List[Dict[str, Union[Dict, List, str, int, float, bool]]],
-            ]
-        ] = None,
+        filters: Optional[Union[FilterType, List[Optional[FilterType]]]] = None,
         top_k: int = 10,
         custom_query: Optional[str] = None,
         index: Optional[str] = None,
@@ -558,18 +561,19 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
                 )
         else:
             filters = [filters] * len(queries) if filters is not None else [{}] * len(queries)
-            for query, cur_filters in zip(queries, filters):
-                cur_docs = self.query(
-                    query=query,
-                    filters=cur_filters,
-                    top_k=top_k,
-                    custom_query=custom_query,
-                    index=index,
-                    headers=headers,
-                    all_terms_must_match=all_terms_must_match,
-                    scale_score=scale_score,
-                )
-                documents.append(cur_docs)
+
+        for query, cur_filters in zip(queries, filters):
+            cur_docs = self.query(
+                query=query,
+                filters=cur_filters,
+                top_k=top_k,
+                custom_query=custom_query,
+                index=index,
+                headers=headers,
+                all_terms_must_match=all_terms_must_match,
+                scale_score=scale_score,
+            )
+            documents.append(cur_docs)
 
         return documents
 
@@ -631,7 +635,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def get_all_labels(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> List[Label]:
         """
@@ -671,7 +675,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
     def delete_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         pass
@@ -681,7 +685,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         pass
@@ -691,7 +695,7 @@ class DeepsetCloudDocumentStore(KeywordDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         pass

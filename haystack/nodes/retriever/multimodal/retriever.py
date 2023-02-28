@@ -8,14 +8,11 @@ import numpy as np
 
 from haystack.nodes.retriever import DenseRetriever
 from haystack.document_stores import BaseDocumentStore
-from haystack.schema import ContentTypes, Document
-from haystack.nodes.retriever.multimodal.embedder import MultiModalEmbedder, MultiModalRetrieverError
+from haystack.schema import ContentTypes, Document, FilterType
+from haystack.nodes.retriever.multimodal.embedder import MultiModalEmbedder
 
 
 logger = logging.getLogger(__name__)
-
-
-FilterType = Optional[Dict[str, Union[Dict[str, Any], List[Any], str, int, float, bool]]]
 
 
 class MultiModalRetriever(DenseRetriever):
@@ -25,11 +22,11 @@ class MultiModalRetriever(DenseRetriever):
         query_embedding_model: Union[Path, str],
         document_embedding_models: Dict[str, Union[Path, str]],  # Replace str with ContentTypes starting Python3.8
         query_type: str = "text",  # Replace str with ContentTypes starting Python3.8
-        query_feature_extractor_params: Dict[str, Any] = {"max_length": 64},
-        document_feature_extractors_params: Dict[str, Dict[str, Any]] = {"text": {"max_length": 256}},
+        query_feature_extractor_params: Optional[Dict[str, Any]] = None,
+        document_feature_extractors_params: Optional[Dict[str, Dict[str, Any]]] = None,
         top_k: int = 10,
         batch_size: int = 16,
-        embed_meta_fields: List[str] = ["name"],
+        embed_meta_fields: Optional[List[str]] = None,
         similarity_function: str = "dot_product",
         progress_bar: bool = True,
         devices: Optional[List[Union[str, torch.device]]] = None,
@@ -48,15 +45,15 @@ class MultiModalRetriever(DenseRetriever):
         :param document_embedding_models: Dictionary matching a local path or remote name of document encoder
             checkpoint with the content type it should handle ("text", "table", "image", and so on).
             The format equals the one used by Hugging Face transformers' modelhub models.
-        :param query_type: The content type of the query ("text", "image" and so on)
-        :param query_feature_extraction_params: The parameters to pass to the feature extractor of the query.
-        :param document_feature_extraction_params: The parameters to pass to the feature extractor of the documents.
+        :param query_type: The content type of the query ("text", "image" and so on).
+        :param query_feature_extraction_params: The parameters to pass to the feature extractor of the query. If no value is provided, a default dictionary with "max_length": 64 will be set.
+        :param document_feature_extraction_params: The parameters to pass to the feature extractor of the documents. If no value is provided, a default dictionary with "text": {"max_length": 256} will be set.
         :param top_k: How many documents to return per query.
-        :param batch_size: Number of questions or documents to encode at once. In case of multiple GPUs, this will be
+        :param batch_size: Number of questions or documents to encode at once. For multiple GPUs, this is
             the total batch size.
         :param embed_meta_fields: Concatenate the provided meta fields to a (text) pair that is then used to create
             the embedding. This is likely to improve performance if your titles contain meaningful information
-            for retrieval (topic, entities, and so on). Note that only text and table documents support this feature.
+            for retrieval (topic, entities, and so on). Note that only text and table documents support this feature. If no values is provided, a default with "name" as embedding field will be created.
         :param similarity_function: Which function to apply for calculating the similarity of query and document
             embeddings during training. Options: `dot_product` (default) or `cosine`.
         :param progress_bar: Whether to show a tqdm progress bar or not.
@@ -75,6 +72,12 @@ class MultiModalRetriever(DenseRetriever):
             range are scaled to a range of [0,1], where 1 means extremely relevant.
             Otherwise raw similarity scores (for example, cosine or dot_product) are used.
         """
+        if query_feature_extractor_params is None:
+            query_feature_extractor_params = {"max_length": 64}
+        if document_feature_extractors_params is None:
+            document_feature_extractors_params = {"text": {"max_length": 256}}
+        if embed_meta_fields is None:
+            embed_meta_fields = ["name"]
         super().__init__()
 
         self.similarity_function = similarity_function
@@ -152,7 +155,7 @@ class MultiModalRetriever(DenseRetriever):
         self,
         queries: List[Any],
         queries_type: ContentTypes = "text",
-        filters: Union[None, FilterType, List[FilterType]] = None,
+        filters: Optional[Union[FilterType, List[Optional[FilterType]]]] = None,
         top_k: Optional[int] = None,
         index: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -180,17 +183,6 @@ class MultiModalRetriever(DenseRetriever):
                             value range are scaled to a range of [0,1], where 1 means extremely relevant.
                             Otherwise raw similarity scores (for example, cosine or dot_product) are used.
         """
-        filters_list: List[FilterType]
-        if not isinstance(filters, list):
-            filters_list = [filters] * len(queries)
-        else:
-            if len(filters) != len(queries):
-                raise MultiModalRetrieverError(
-                    "The number of filters does not match the number of queries. Provide as many filters "
-                    "as queries, or a single filter that will be applied to all queries."
-                )
-            filters_list = filters
-
         top_k = top_k or self.top_k
         document_store = document_store or self.document_store
         if not document_store:
@@ -208,7 +200,7 @@ class MultiModalRetriever(DenseRetriever):
         documents = document_store.query_by_embedding_batch(
             query_embs=query_embeddings,
             top_k=top_k,
-            filters=filters_list,  # type: ignore
+            filters=filters,
             index=index,
             headers=headers,
             scale_score=scale_score,

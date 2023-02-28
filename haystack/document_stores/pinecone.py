@@ -2,12 +2,14 @@ from typing import Set, Union, List, Optional, Dict, Generator, Any
 
 import logging
 from itertools import islice
+from functools import reduce
+import operator
 
 import pinecone
 import numpy as np
 from tqdm.auto import tqdm
 
-from haystack.schema import Document, Label, Answer, Span
+from haystack.schema import Document, FilterType, Label, Answer, Span
 from haystack.document_stores import BaseDocumentStore
 
 from haystack.document_stores.filter_utils import LogicalFilterClause
@@ -22,6 +24,16 @@ def _sanitize_index_name(index: Optional[str]) -> Optional[str]:
     if index:
         return index.replace("_", "-").lower()
     return None
+
+
+def _get_by_path(root, items):
+    """Access a nested object in root by item sequence."""
+    return reduce(operator.getitem, items, root)
+
+
+def _set_by_path(root, items, value):
+    """Set a value in a nested object in root by item sequence."""
+    _get_by_path(root, items[:-1])[items[-1]] = value
 
 
 class PineconeDocumentStore(BaseDocumentStore):
@@ -56,7 +68,7 @@ class PineconeDocumentStore(BaseDocumentStore):
         progress_bar: bool = True,
         duplicate_documents: str = "overwrite",
         recreate_index: bool = False,
-        metadata_config: dict = {"indexed": []},
+        metadata_config: Optional[Dict] = None,
         validate_index_sync: bool = True,
     ):
         """
@@ -94,6 +106,8 @@ class PineconeDocumentStore(BaseDocumentStore):
             Should be in the format `{"indexed": ["metadata-field-1", "metadata-field-2", "metadata-field-n"]}`. By default,
             no fields are indexed.
         """
+        if metadata_config is None:
+            metadata_config = {"indexed": []}
         # Connect to Pinecone server using python client binding
         if not api_key:
             raise PineconeDocumentStoreError(
@@ -148,6 +162,12 @@ class PineconeDocumentStore(BaseDocumentStore):
         self.progress_bar = progress_bar
 
         if pinecone_index:
+            if not isinstance(pinecone_index, pinecone.Index):
+                raise PineconeDocumentStoreError(
+                    f"The parameter `pinecone_index` needs to be a "
+                    f"`pinecone.Index` object. You provided an object of "
+                    f"type `{type(pinecone_index)}`."
+                )
             self.pinecone_indexes[self.index] = pinecone_index
         else:
             self.pinecone_indexes[self.index] = self._create_index(
@@ -183,12 +203,14 @@ class PineconeDocumentStore(BaseDocumentStore):
         replicas: Optional[int] = 1,
         shards: Optional[int] = 1,
         recreate_index: bool = False,
-        metadata_config: dict = {"indexed": []},
+        metadata_config: Optional[Dict] = None,
     ):
         """
         Create a new index for storing documents in case an
         index with the name doesn't exist already.
         """
+        if metadata_config is None:
+            metadata_config = {"indexed": []}
         index = self._index_name(index)
 
         if recreate_index:
@@ -220,7 +242,7 @@ class PineconeDocumentStore(BaseDocumentStore):
 
     def get_document_count(
         self,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         index: Optional[str] = None,
         only_documents_without_embedding: bool = False,
         headers: Optional[Dict[str, str]] = None,
@@ -394,7 +416,7 @@ class PineconeDocumentStore(BaseDocumentStore):
                                 # Otherwise, we raise an error
                                 raise DuplicateDocumentError(f"Duplicate document IDs found in batch: {ids}")
                     metadata = [
-                        {"content": doc.content, "content_type": doc.content_type, **doc.meta}
+                        self._meta_for_pinecone({"content": doc.content, "content_type": doc.content_type, **doc.meta})
                         for doc in document_objects[i : i + batch_size]
                     ]
                     if add_vectors:
@@ -421,7 +443,7 @@ class PineconeDocumentStore(BaseDocumentStore):
         retriever: DenseRetriever,
         index: Optional[str] = None,
         update_existing_embeddings: bool = True,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         batch_size: int = 32,
     ):
         """
@@ -493,6 +515,12 @@ class PineconeDocumentStore(BaseDocumentStore):
             for _ in range(0, document_count, batch_size):
                 document_batch = list(islice(documents, batch_size))
                 embeddings = retriever.embed_documents(document_batch)
+                if embeddings.size == 0:
+                    # Skip batch if there are no embeddings. Otherwise, incorrect embedding shape will be inferred and
+                    # Pinecone APi will return a "No vectors provided" Bad Request Error
+                    progress_bar.set_description_str("Documents Processed")
+                    progress_bar.update(batch_size)
+                    continue
                 self._validate_embeddings_shape(
                     embeddings=embeddings, num_documents=len(document_batch), embedding_dim=self.embedding_dim
                 )
@@ -503,7 +531,9 @@ class PineconeDocumentStore(BaseDocumentStore):
                 metadata = []
                 ids = []
                 for doc in document_batch:
-                    metadata.append({"content": doc.content, "content_type": doc.content_type, **doc.meta})
+                    metadata.append(
+                        self._meta_for_pinecone({"content": doc.content, "content_type": doc.content_type, **doc.meta})
+                    )
                     ids.append(doc.id)
                 # Update existing vectors in pinecone index
                 self.pinecone_indexes[index].upsert(
@@ -519,7 +549,7 @@ class PineconeDocumentStore(BaseDocumentStore):
     def get_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 32,
         headers: Optional[Dict[str, str]] = None,
@@ -578,7 +608,7 @@ class PineconeDocumentStore(BaseDocumentStore):
     def get_all_documents_generator(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 32,
         headers: Optional[Dict[str, str]] = None,
@@ -664,7 +694,7 @@ class PineconeDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         namespace: Optional[str] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         batch_size: int = 32,
     ) -> List[str]:
         index = self._index_name(index)
@@ -810,7 +840,7 @@ class PineconeDocumentStore(BaseDocumentStore):
             embedding_matrix = []
             for _id in result["vectors"].keys():
                 vector_id_matrix.append(_id)
-                meta_matrix.append(result["vectors"][_id]["metadata"])
+                meta_matrix.append(self._pinecone_meta_format(result["vectors"][_id]["metadata"]))
                 if return_embedding:
                     embedding_matrix.append(result["vectors"][_id]["values"])
             if return_embedding:
@@ -846,9 +876,7 @@ class PineconeDocumentStore(BaseDocumentStore):
         )
         return documents[0]
 
-    def get_embedding_count(
-        self, index: Optional[str] = None, filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None
-    ) -> int:
+    def get_embedding_count(self, index: Optional[str] = None, filters: Optional[FilterType] = None) -> int:
         """
         Return the count of embeddings in the document store.
 
@@ -906,7 +934,7 @@ class PineconeDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
         drop_ids: Optional[bool] = True,
         namespace: Optional[str] = None,
@@ -1010,7 +1038,7 @@ class PineconeDocumentStore(BaseDocumentStore):
     def query_by_embedding(
         self,
         query_emb: np.ndarray,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         top_k: int = 10,
         index: Optional[str] = None,
         return_embedding: Optional[bool] = None,
@@ -1168,7 +1196,6 @@ class PineconeDocumentStore(BaseDocumentStore):
         headers: Optional[Dict[str, str]] = None,
         return_embedding: Optional[bool] = None,
     ) -> List[Document]:
-
         if headers:
             raise NotImplementedError("PineconeDocumentStore does not support headers.")
 
@@ -1278,11 +1305,7 @@ class PineconeDocumentStore(BaseDocumentStore):
                 progress_bar.update(1)
 
     def _get_ids(
-        self,
-        index: str,
-        namespace: str,
-        batch_size: int = 32,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        self, index: str, namespace: str, batch_size: int = 32, filters: Optional[FilterType] = None
     ) -> List[str]:
         """
         Retrieves a list of IDs that satisfy a particular filter condition (or any) using
@@ -1317,25 +1340,79 @@ class PineconeDocumentStore(BaseDocumentStore):
         """
         raise NotImplementedError("load method not supported for PineconeDocumentStore")
 
-    def _meta_for_pinecone(self, meta: Dict[str, Any]) -> Dict[str, Any]:
+    def _meta_for_pinecone(self, meta: Dict[str, Any], parent_key: str = "", labels: bool = False) -> Dict[str, Any]:
         """
         Converts the meta dictionary to a format that can be stored in Pinecone.
+        :param meta: Metadata dictionary to be converted.
+        :param parent_key: Optional, used for recursive calls to keep track of parent keys, for example:
+            ```
+            {"parent1": {"parent2": {"child": "value"}}}
+            ```
+            On the second recursive call, parent_key would be "parent1", and the final key would be "parent1.parent2.child".
+        :param labels: Optional, used to indicate whether the metadata is being stored as a label or not. If True the
+            the flattening of dictionaries is not required.
         """
-        # Replace any None values with empty strings
-        for key, value in meta.items():
-            if value is None:
-                meta[key] = ""
+        items: list = []
+        if labels:
+            # Replace any None values with empty strings
+            for key, value in meta.items():
+                if value is None:
+                    meta[key] = ""
+        else:
+            # Explode dict of dicts into single flattened dict
+            for key, value in meta.items():
+                # Replace any None values with empty strings
+                if value is None:
+                    value = ""
+                # format key
+                new_key = f"{parent_key}.{key}" if parent_key else key
+                # if value is dict, expand
+                if isinstance(value, dict):
+                    items.extend(self._meta_for_pinecone(value, parent_key=new_key).items())
+                else:
+                    items.append((new_key, value))
+            # Create new flattened dictionary
+            meta = dict(items)
         return meta
 
-    def _pinecone_meta_format(self, meta: Dict[str, Any]) -> Dict[str, Any]:
+    def _pinecone_meta_format(self, meta: Dict[str, Any], labels: bool = False) -> Dict[str, Any]:
         """
         Converts the meta extracted from Pinecone into a better format for Python.
+        :param meta: Metadata dictionary to be converted.
+        :param labels: Optional, used to indicate whether the metadata is being stored as a label or not. If True the
+            the flattening of dictionaries is not required.
         """
-        # Replace any empty strings with None values
-        for key, value in meta.items():
-            if value == "":
-                meta[key] = None
-        return meta
+        new_meta: Dict[str, Any] = {}
+
+        if labels:
+            # Replace any empty strings with None values
+            for key, value in meta.items():
+                if value == "":
+                    meta[key] = None
+            return meta
+        else:
+            for key, value in meta.items():
+                # Replace any empty strings with None values
+                if value == "":
+                    value = None
+                if "." in key:
+                    # We must split into nested dictionary
+                    keys = key.split(".")
+                    # Iterate through each dictionary level
+                    for i in range(len(keys)):
+                        path = keys[: i + 1]
+                        # Check if path exists
+                        try:
+                            _get_by_path(new_meta, path)
+                        except KeyError:
+                            # Create path
+                            if i == len(keys) - 1:
+                                _set_by_path(new_meta, path, value)
+                            else:
+                                _set_by_path(new_meta, path, {})
+                else:
+                    new_meta[key] = value
+            return new_meta
 
     def _label_to_meta(self, labels: list) -> dict:
         """
@@ -1373,7 +1450,7 @@ class PineconeDocumentStore(BaseDocumentStore):
                         "label-answer-type": label.answer.type,
                         "label-answer-score": label.answer.score,
                         "label-answer-context": label.answer.context,
-                        "label-answer-document-id": label.answer.document_id,
+                        "label-answer-document-ids": label.answer.document_ids,
                     }
                 )
                 # Get offset data
@@ -1390,7 +1467,7 @@ class PineconeDocumentStore(BaseDocumentStore):
                     meta["label-answer-offsets-in-context-start"] = None
                     meta["label-answer-offsets-in-context-end"] = None
             metadata[label.id] = meta
-        metadata = self._meta_for_pinecone(metadata)
+        metadata = self._meta_for_pinecone(metadata, labels=True)
         return metadata
 
     def _meta_to_labels(self, documents: List[Document]) -> List[Label]:
@@ -1422,6 +1499,13 @@ class PineconeDocumentStore(BaseDocumentStore):
             # Extract Answer
             answer = None
             if label_meta.get("label-answer-answer") is not None:
+                # backwards compatibility: if legacy answer object with `document_id` is present, convert to `document_ids
+                if "label-answer-document-id" in label_meta:
+                    document_id = label_meta["label-answer-document-id"]
+                    document_ids = [document_id] if document_id is not None else None
+                else:
+                    document_ids = label_meta["label-answer-document-ids"]
+
                 answer = Answer(
                     answer=label_meta["label-answer-answer"]
                     or "",  # If we leave as None a schema validation error will be thrown
@@ -1430,7 +1514,7 @@ class PineconeDocumentStore(BaseDocumentStore):
                     context=label_meta["label-answer-context"],
                     offsets_in_document=offsets["document"],
                     offsets_in_context=offsets["context"],
-                    document_id=label_meta["label-answer-document-id"],
+                    document_ids=document_ids,
                     meta=other_meta,
                 )
             # Extract Label metadata
@@ -1460,7 +1544,7 @@ class PineconeDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
         batch_size: int = 32,
     ):
@@ -1517,7 +1601,9 @@ class PineconeDocumentStore(BaseDocumentStore):
             # Delete the documents
             self.delete_documents(ids=update_ids, index=index, namespace=namespace)
 
-    def get_all_labels(self, index=None, filters: Optional[dict] = None, headers: Optional[Dict[str, str]] = None):
+    def get_all_labels(
+        self, index=None, filters: Optional[FilterType] = None, headers: Optional[Dict[str, str]] = None
+    ):
         """
         Default class method used for getting all labels.
         """
@@ -1530,7 +1616,7 @@ class PineconeDocumentStore(BaseDocumentStore):
 
         documents = self.get_all_documents(index=index, filters=filters, headers=headers, namespace="labels")
         for doc in documents:
-            doc.meta = self._pinecone_meta_format(doc.meta)
+            doc.meta = self._pinecone_meta_format(doc.meta, labels=True)
         labels = self._meta_to_labels(documents)
         return labels
 

@@ -10,7 +10,8 @@ from tqdm.auto import tqdm
 from haystack.schema import Document, MultiLabel
 from haystack.errors import HaystackError, PipelineError
 from haystack.nodes.base import BaseComponent
-from haystack.document_stores.base import BaseDocumentStore, BaseKnowledgeGraph
+from haystack.telemetry_2 import send_event
+from haystack.document_stores.base import BaseDocumentStore, BaseKnowledgeGraph, FilterType
 
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class BaseRetriever(BaseComponent):
     def retrieve(
         self,
         query: str,
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[FilterType] = None,
         top_k: Optional[int] = None,
         index: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -90,7 +91,7 @@ class BaseRetriever(BaseComponent):
     def retrieve_batch(
         self,
         queries: List[str],
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
+        filters: Optional[Union[FilterType, List[Optional[FilterType]]]] = None,
         top_k: Optional[int] = None,
         index: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -153,7 +154,7 @@ class BaseRetriever(BaseComponent):
                              contains the keys "predictions" and "metrics".
         :param headers: Custom HTTP headers to pass to document store client if supported (e.g. {'Authorization': 'Basic YWRtaW46cm9vdA=='} for basic authentication)
         """
-
+        send_event("BaseRetriever.eval()")
         # Extract all questions for evaluation
         filters: Dict = {"origin": [label_origin]}
 
@@ -245,9 +246,8 @@ class BaseRetriever(BaseComponent):
         mean_avg_precision = summed_avg_precision / number_of_questions
 
         logger.info(
-            (
-                f"For {correct_retrievals} out of {number_of_questions} questions ({recall:.2%}), the answer was in"
-                f" the top-{top_k} candidate passages selected by the retriever."
+            "For {} out of {} questions ({:.2%}), the answer was in the top-{} candidate passages selected by the retriever.".format(
+                correct_retrievals, number_of_questions, recall, top_k
             )
         )
 
@@ -269,7 +269,7 @@ class BaseRetriever(BaseComponent):
         self,
         root_node: str,
         query: Optional[str] = None,
-        filters: Optional[dict] = None,
+        filters: Optional[FilterType] = None,
         top_k: Optional[int] = None,
         documents: Optional[List[Document]] = None,
         index: Optional[str] = None,
@@ -303,7 +303,7 @@ class BaseRetriever(BaseComponent):
         self,
         root_node: str,
         queries: Optional[List[str]] = None,
-        filters: Optional[Union[dict, List[dict]]] = None,
+        filters: Optional[Union[FilterType, List[Optional[FilterType]]]] = None,
         top_k: Optional[int] = None,
         documents: Optional[Union[List[Document], List[List[Document]]]] = None,
         index: Optional[str] = None,
@@ -336,7 +336,7 @@ class BaseRetriever(BaseComponent):
     def run_query(
         self,
         query: str,
-        filters: Optional[dict] = None,
+        filters: Optional[FilterType] = None,
         top_k: Optional[int] = None,
         index: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
@@ -354,7 +354,7 @@ class BaseRetriever(BaseComponent):
     def run_query_batch(
         self,
         queries: List[str],
-        filters: Optional[dict] = None,
+        filters: Optional[Union[FilterType, List[Optional[FilterType]]]] = None,
         top_k: Optional[int] = None,
         index: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,

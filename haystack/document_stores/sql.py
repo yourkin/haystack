@@ -24,7 +24,7 @@ try:
         TypeDecorator,
     )
     from sqlalchemy.ext.declarative import declarative_base
-    from sqlalchemy.orm import relationship, sessionmaker
+    from sqlalchemy.orm import relationship, sessionmaker, aliased
     from sqlalchemy.sql import case, null
 except (ImportError, ModuleNotFoundError) as ie:
     from haystack.utils.import_utils import _optional_component_not_installed
@@ -32,7 +32,7 @@ except (ImportError, ModuleNotFoundError) as ie:
     _optional_component_not_installed(__name__, "sql", ie)
 
 from haystack.schema import Document, Label, Answer
-from haystack.document_stores.base import BaseDocumentStore
+from haystack.document_stores.base import BaseDocumentStore, FilterType
 from haystack.document_stores.filter_utils import LogicalFilterClause
 
 
@@ -41,7 +41,6 @@ Base = declarative_base()  # type: Any
 
 
 class ArrayType(TypeDecorator):
-
     impl = String
     cache_ok = True
 
@@ -85,12 +84,12 @@ class MetaDocumentORM(ORMBase):
 
     document_id = Column(String(100), nullable=False, index=True)
     document_index = Column(String(100), nullable=False, index=True)
-    __table_args__ = (
+    __table_args__ = (  # type: ignore
         ForeignKeyConstraint(
             [document_id, document_index], [DocumentORM.id, DocumentORM.index], ondelete="CASCADE", onupdate="CASCADE"
         ),
         {},
-    )  # type: ignore
+    )
 
 
 class LabelORM(ORMBase):
@@ -118,12 +117,12 @@ class MetaLabelORM(ORMBase):
 
     label_id = Column(String(100), nullable=False, index=True)
     label_index = Column(String(100), nullable=False, index=True)
-    __table_args__ = (
+    __table_args__ = (  # type: ignore
         ForeignKeyConstraint(
             [label_id, label_index], [LabelORM.id, LabelORM.index], ondelete="CASCADE", onupdate="CASCADE"
         ),
         {},
-    )  # type: ignore
+    )
 
 
 class SQLDocumentStore(BaseDocumentStore):
@@ -228,7 +227,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def get_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 10_000,
         headers: Optional[Dict[str, str]] = None,
@@ -246,7 +245,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def get_all_documents_generator(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 10_000,
         headers: Optional[Dict[str, str]] = None,
@@ -280,7 +279,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def _query(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         vector_ids: Optional[List[str]] = None,
         only_documents_without_embedding: bool = False,
         batch_size: int = 10_000,
@@ -345,7 +344,9 @@ class SQLDocumentStore(BaseDocumentStore):
             documents_map[row.document_id].meta[row.name] = row.value
         return documents_map
 
-    def get_all_labels(self, index=None, filters: Optional[dict] = None, headers: Optional[Dict[str, str]] = None):
+    def get_all_labels(
+        self, index=None, filters: Optional[FilterType] = None, headers: Optional[Dict[str, str]] = None
+    ):
         """
         Return all labels in the document store
         """
@@ -446,10 +447,11 @@ class SQLDocumentStore(BaseDocumentStore):
         duplicate_ids: list = [label.id for label in self._get_duplicate_labels(labels, index=index)]
         if len(duplicate_ids) > 0:
             logger.warning(
-                f"Duplicate Label IDs: Inserting a Label whose id already exists in this document store."
-                f" This will overwrite the old Label. Please make sure Label.id is a unique identifier of"
-                f" the answer annotation and not the question."
-                f"   Problematic ids: {','.join(duplicate_ids)}"
+                "Duplicate Label IDs: Inserting a Label whose id already exists in this document store."
+                " This will overwrite the old Label. Please make sure Label.id is a unique identifier of"
+                " the answer annotation and not the question."
+                "   Problematic ids: %s",
+                ",".join(duplicate_ids),
             )
         # TODO: Use batch_size
 
@@ -542,7 +544,7 @@ class SQLDocumentStore(BaseDocumentStore):
 
     def get_document_count(
         self,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         index: Optional[str] = None,
         only_documents_without_embedding: bool = False,
         headers: Optional[Dict[str, str]] = None,
@@ -614,14 +616,13 @@ class SQLDocumentStore(BaseDocumentStore):
     def query_by_embedding(
         self,
         query_emb: np.ndarray,
-        filters: Optional[dict] = None,
+        filters: Optional[FilterType] = None,
         top_k: int = 10,
         index: Optional[str] = None,
         return_embedding: Optional[bool] = None,
         headers: Optional[Dict[str, str]] = None,
         scale_score: bool = True,
     ) -> List[Document]:
-
         raise NotImplementedError(
             "SQLDocumentStore is currently not supporting embedding queries. "
             "Change the query type (e.g. by choosing a different retriever) "
@@ -631,7 +632,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def delete_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         """
@@ -656,7 +657,7 @@ class SQLDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         """
@@ -685,7 +686,8 @@ class SQLDocumentStore(BaseDocumentStore):
             if ids:
                 document_ids_to_delete = document_ids_to_delete.filter(DocumentORM.id.in_(ids))
 
-            self.session.query(DocumentORM).filter(DocumentORM.id.in_(document_ids_to_delete)).delete(
+            inner_query = document_ids_to_delete.subquery()
+            self.session.query(DocumentORM).filter(DocumentORM.id.in_(aliased(inner_query))).delete(
                 synchronize_session=False
             )
 
@@ -704,7 +706,7 @@ class SQLDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         """
@@ -733,7 +735,8 @@ class SQLDocumentStore(BaseDocumentStore):
             if ids:
                 label_ids_to_delete = label_ids_to_delete.filter(LabelORM.id.in_(ids))
 
-            self.session.query(LabelORM).filter(LabelORM.id.in_(label_ids_to_delete)).delete(synchronize_session=False)
+            inner_query = label_ids_to_delete.subquery()
+            self.session.query(LabelORM).filter(LabelORM.id.in_(aliased(inner_query))).delete(synchronize_session=False)
 
         self.session.commit()
 
@@ -749,7 +752,7 @@ class SQLDocumentStore(BaseDocumentStore):
 
     def chunked_dict(self, dictionary, size):
         it = iter(dictionary)
-        for i in range(0, len(dictionary), size):
+        for _ in range(0, len(dictionary), size):
             yield {k: dictionary[k] for k in itertools.islice(it, size)}
 
     def _column_windows(self, session, column, windowsize):

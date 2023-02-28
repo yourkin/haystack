@@ -75,10 +75,12 @@ class TableReader(BaseReader):
         """
         Load a TableQA model from Transformers.
         Available models include:
+
         - ``'google/tapas-base-finetuned-wtq`'``
         - ``'google/tapas-base-finetuned-wikisql-supervised``'
         - ``'deepset/tapas-large-nq-hn-reader'``
         - ``'deepset/tapas-large-nq-reader'``
+
         See https://huggingface.co/models?pipeline_tag=table-question-answering
         for full list of available TableQA models.
 
@@ -116,8 +118,9 @@ class TableReader(BaseReader):
         self.devices, _ = initialize_device_settings(devices=devices, use_cuda=use_gpu, multi_gpu=False)
         if len(self.devices) > 1:
             logger.warning(
-                f"Multiple devices are not supported in {self.__class__.__name__} inference, "
-                f"using the first device {self.devices[0]}."
+                "Multiple devices are not supported in %s inference, using the first device %s.",
+                self.__class__.__name__,
+                self.devices[0],
             )
 
         config = TapasConfig.from_pretrained(model_name_or_path, use_auth_token=use_auth_token)
@@ -433,6 +436,7 @@ class _TapasEncoder:
         pipeline_inputs = []
         for document in table_documents:
             table: pd.DataFrame = document.content
+            table = table.astype(str)
             pipeline_inputs.append(
                 {"query": query, "table": table, "sequential": False, "padding": True, "truncation": True}
             )
@@ -490,9 +494,11 @@ class _TapasScoredEncoder:
         self.return_no_answer = return_no_answer
 
     def _predict_tapas_scored(self, inputs: BatchEncoding, document: Document) -> Tuple[List[Answer], float]:
-        table: pd.DataFrame = document.content
+        orig_table: pd.DataFrame = document.content
+        string_table = orig_table.astype(str)
 
         # Forward pass through model
+        self.model.eval()
         with torch.inference_mode():
             outputs = self.model.tapas(**inputs)
             table_score = self.model.classifier(outputs.pooler_output)
@@ -566,8 +572,8 @@ class _TapasScoredEncoder:
         answers = []
         for answer_span_idx in top_k_answer_spans.indices:
             current_answer_span = possible_answer_spans[answer_span_idx]
-            answer_str = table.iat[current_answer_span[:2]]
-            answer_offsets = _calculate_answer_offsets([current_answer_span[:2]], document.content)
+            answer_str = string_table.iat[current_answer_span[:2]]
+            answer_offsets = _calculate_answer_offsets([current_answer_span[:2]], string_table)
             # As the general table score is more important for the final score, it is double weighted.
             current_score = ((2 * table_relevancy_prob) + span_logits_softmax[0, answer_span_idx].item()) / 3
 
@@ -576,11 +582,11 @@ class _TapasScoredEncoder:
                     answer=answer_str,
                     type="extractive",
                     score=current_score,
-                    context=document.content,
+                    context=string_table,
                     offsets_in_document=answer_offsets,
                     offsets_in_context=answer_offsets,
-                    document_id=document.id,
-                    meta={"aggregation_operator": "NONE", "answer_cells": table.iat[current_answer_span[:2]]},
+                    document_ids=[document.id],
+                    meta={"aggregation_operator": "NONE", "answer_cells": string_table.iat[current_answer_span[:2]]},
                 )
             )
 
@@ -592,6 +598,7 @@ class _TapasScoredEncoder:
         table_documents = _check_documents(documents)
         for document in table_documents:
             table: pd.DataFrame = document.content
+            table = table.astype(str)
             model_inputs = self.tokenizer(
                 table=table, queries=query, max_length=self.max_seq_len, return_tensors="pt", truncation=True
             )
@@ -611,7 +618,7 @@ class _TapasScoredEncoder:
                     context=None,
                     offsets_in_context=[Span(start=0, end=0)],
                     offsets_in_document=[Span(start=0, end=0)],
-                    document_id=None,
+                    document_ids=None,
                     meta=None,
                 )
             )
@@ -654,9 +661,11 @@ class RCIReader(BaseReader):
     See the original paper for more details:
     Glass, Michael, et al. (2021): "Capturing Row and Column Semantics in Transformer Based Question Answering over Tables"
     (https://aclanthology.org/2021.naacl-main.96/)
+
     Each row and each column is given a score with regard to the query by two separate models. The score of each cell
     is then calculated as the sum of the corresponding row score and column score. Accordingly, the predicted answer is
     the cell with the highest score.
+
     Pros and Cons of RCIReader compared to TableReader:
     + Provides meaningful confidence scores
     + Allows larger tables as input
@@ -680,8 +689,12 @@ class RCIReader(BaseReader):
         """
         Load an RCI model from Transformers.
         Available models include:
+
         - ``'michaelrglass/albert-base-rci-wikisql-row'`` + ``'michaelrglass/albert-base-rci-wikisql-col'``
         - ``'michaelrglass/albert-base-rci-wtq-row'`` + ``'michaelrglass/albert-base-rci-wtq-col'``
+
+
+
         :param row_model_name_or_path: Directory of a saved row scoring model or the name of a public model
         :param column_model_name_or_path: Directory of a saved column scoring model or the name of a public model
         :param row_model_version: The version of row model to use from the HuggingFace model hub.
@@ -706,8 +719,9 @@ class RCIReader(BaseReader):
         self.devices, _ = initialize_device_settings(use_cuda=use_gpu, multi_gpu=False)
         if len(self.devices) > 1:
             logger.warning(
-                f"Multiple devices are not supported in {self.__class__.__name__} inference, "
-                f"using the first device {self.devices[0]}."
+                "Multiple devices are not supported in %s inference, using the first device %s.",
+                self.__class__.__name__,
+                self.devices[0],
             )
 
         self.row_model = AutoModelForSequenceClassification.from_pretrained(
@@ -749,9 +763,11 @@ class RCIReader(BaseReader):
         """
         Use loaded RCI models to find answers for a query in the supplied list of Documents
         of content_type ``'table'``.
+
         Returns dictionary containing query and list of Answer objects sorted by (desc.) score.
         The existing RCI models on the HF model hub don"t allow aggregation, therefore, the answer will always be
         composed of a single cell.
+
         :param query: Query string
         :param documents: List of Document in which to search for the answer. Documents should be
                           of content_type ``'table'``.
@@ -766,8 +782,8 @@ class RCIReader(BaseReader):
         for document in table_documents:
             # Create row and column representations
             table: pd.DataFrame = document.content
-            table = table.astype(str)
-            row_reps, column_reps = self._create_row_column_representations(table)
+            string_table = table.astype(str)
+            row_reps, column_reps = self._create_row_column_representations(string_table)
 
             # Get row logits
             row_inputs = self.row_tokenizer(
@@ -779,6 +795,7 @@ class RCIReader(BaseReader):
                 padding=True,
             )
             row_inputs.to(self.devices[0])
+            self.row_model.eval()
             with torch.inference_mode():
                 row_outputs = self.row_model(**row_inputs)
             row_logits = row_outputs[0].detach().cpu().numpy()[:, 1]
@@ -793,6 +810,7 @@ class RCIReader(BaseReader):
                 padding=True,
             )
             column_inputs.to(self.devices[0])
+            self.column_model.eval()
             with torch.inference_mode():
                 column_outputs = self.column_model(**column_inputs)
             column_logits = column_outputs[0].detach().cpu().numpy()[:, 1]
@@ -806,17 +824,17 @@ class RCIReader(BaseReader):
                     current_cell_score = float(row_score + col_score)
                     cell_scores_table[-1].append(current_cell_score)
 
-                    answer_str = table.iloc[row_idx, col_idx]
-                    answer_offsets = self._calculate_answer_offsets(row_idx, col_idx, table)
+                    answer_str = string_table.iloc[row_idx, col_idx]
+                    answer_offsets = self._calculate_answer_offsets(row_idx, col_idx, string_table)
                     current_answers.append(
                         Answer(
                             answer=answer_str,
                             type="extractive",
                             score=current_cell_score,
-                            context=table,
+                            context=string_table,
                             offsets_in_document=[answer_offsets],
                             offsets_in_context=[answer_offsets],
-                            document_id=document.id,
+                            document_ids=[document.id],
                         )
                     )
 
@@ -839,7 +857,7 @@ class RCIReader(BaseReader):
         column_reps = []
         columns = table.columns
 
-        for idx, row in table.iterrows():
+        for _, row in table.iterrows():
             current_row_rep = " * ".join([header + " : " + cell for header, cell in zip(columns, row)])
             row_reps.append(current_row_rep)
 
@@ -852,7 +870,7 @@ class RCIReader(BaseReader):
 
     @staticmethod
     def _calculate_answer_offsets(row_idx, column_index, table) -> Span:
-        n_rows, n_columns = table.shape
+        _, n_columns = table.shape
         answer_cell_offset = (row_idx * n_columns) + column_index
 
         return Span(start=answer_cell_offset, end=answer_cell_offset + 1)
@@ -899,11 +917,12 @@ def _is_no_answer(answer: Answer):
 def _calculate_answer_offsets(answer_coordinates: List[Tuple[int, int]], table: pd.DataFrame) -> List[Span]:
     """
     Calculates the answer cell offsets of the linearized table based on the answer cell coordinates.
+
     :param answer_coordinates: List of answer coordinates.
     :param table: Table containing the answers in answer coordinates.
     """
     answer_offsets = []
-    n_rows, n_columns = table.shape
+    _, n_columns = table.shape
     for coord in answer_coordinates:
         answer_cell_offset = (coord[0] * n_columns) + coord[1]
         answer_offsets.append(Span(start=answer_cell_offset, end=answer_cell_offset + 1))
@@ -913,6 +932,7 @@ def _calculate_answer_offsets(answer_coordinates: List[Tuple[int, int]], table: 
 def _check_documents(documents: List[Document]) -> List[Document]:
     """
     Check that the content type of all `documents` is of type 'table' otherwise remove that document from the list.
+
     :param documents: List of documents to be checked.
     """
     table_documents = []
@@ -934,14 +954,17 @@ def _check_documents(documents: List[Document]) -> List[Document]:
 
 def _flatten_inputs(queries: List[str], documents: Union[List[Document], List[List[Document]]]) -> Dict[str, List]:
     """Flatten (and copy) the queries and documents into lists of equal length.
+
     - If you provide a list containing a single query...
         - ... and a single list of Documents, the query will be applied to each Document individually.
         - ... and a list of lists of Documents, the query will be applied to each list of Documents and the Answers
           will be aggregated per Document list.
+
     - If you provide a list of multiple queries...
         - ... and a single list of Documents, each query will be applied to each Document individually.
         - ... and a list of lists of Documents, each query will be applied to its corresponding list of Documents
           and the Answers will be aggregated per query-Document pair.
+
     :param queries: Single query string or list of queries.
     :param documents: Single list of Documents or list of lists of Documents in which to search for the answers.
                       Documents should be of content_type ``'table'``.

@@ -10,7 +10,7 @@ try:
 except ImportError:
     from typing_extensions import Literal  # type: ignore
 
-from haystack.document_stores.base import BaseDocumentStore
+from haystack.document_stores.base import BaseDocumentStore, FilterType
 from haystack.nodes.answer_generator.base import BaseGenerator
 from haystack.nodes.other.docs2answers import Docs2Answers
 from haystack.nodes.other.document_merger import DocumentMerger
@@ -122,7 +122,6 @@ class BaseStandardPipeline(ABC):
         context_matching_boost_split_overlaps: bool = True,
         context_matching_threshold: float = 65.0,
     ) -> EvaluationResult:
-
         """
         Evaluates the pipeline by running the pipeline once per query in debug mode
         and putting together all data that is needed for evaluation, e.g. calculating metrics.
@@ -181,7 +180,6 @@ class BaseStandardPipeline(ABC):
         context_matching_boost_split_overlaps: bool = True,
         context_matching_threshold: float = 65.0,
     ) -> EvaluationResult:
-
         """
          Evaluates the pipeline by running the pipeline once per query in the debug mode
          and putting together all data that is needed for evaluation, for example, calculating metrics.
@@ -241,7 +239,7 @@ class BaseStandardPipeline(ABC):
             "document_id_or_answer",
         ] = "document_id_or_answer",
         answer_scope: Literal["any", "context", "document_id", "document_id_and_context"] = "any",
-        wrong_examples_fields: List[str] = ["answer", "context", "document_id"],
+        wrong_examples_fields: Optional[List[str]] = None,
         max_characters_per_field: int = 150,
     ):
         """
@@ -277,9 +275,11 @@ class BaseStandardPipeline(ABC):
             - 'document_id_and_context': The answer is only considered correct if its document ID and its context match as well.
             The default value is 'any'.
             In Question Answering, to enforce that the retrieved document is considered correct whenever the answer is correct, set `document_scope` to 'answer' or 'document_id_or_answer'.
-        :param wrong_examples_fields: A list of field names to include in the worst samples.
+        :param wrong_examples_fields: A list of field names to include in the worst samples. By default, "answer", "context", and "document_id" are used.
         :param max_characters_per_field: The maximum number of characters per wrong example to show (per field).
         """
+        if wrong_examples_fields is None:
+            wrong_examples_fields = ["answer", "context", "document_id"]
         if metrics_filter is None:
             metrics_filter = self.metrics_filter
         self.pipeline.print_eval_report(
@@ -673,11 +673,7 @@ class MostSimilarDocumentsPipeline(BaseStandardPipeline):
         self.document_store = document_store
 
     def run(
-        self,
-        document_ids: List[str],
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
-        top_k: int = 5,
-        index: Optional[str] = None,
+        self, document_ids: List[str], filters: Optional[FilterType] = None, top_k: int = 5, index: Optional[str] = None
     ):
         """
         :param document_ids: document ids
@@ -690,18 +686,14 @@ class MostSimilarDocumentsPipeline(BaseStandardPipeline):
         documents = self.document_store.get_documents_by_id(ids=document_ids, index=index)
         query_embs = [doc.embedding for doc in documents]
         similar_documents = self.document_store.query_by_embedding_batch(
-            query_embs=query_embs, filters=filters, return_embedding=False, top_k=top_k, index=index
+            query_embs=query_embs, filters=filters, return_embedding=False, top_k=top_k, index=index  # type: ignore [arg-type]
         )
 
         self.document_store.return_embedding = False  # type: ignore
         return similar_documents
 
     def run_batch(  # type: ignore
-        self,
-        document_ids: List[str],
-        filters: Optional[Dict[str, Union[Dict, List, str, int, float, bool]]] = None,
-        top_k: int = 5,
-        index: Optional[str] = None,
+        self, document_ids: List[str], filters: Optional[FilterType] = None, top_k: int = 5, index: Optional[str] = None
     ):
         """
         :param document_ids: document ids
