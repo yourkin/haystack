@@ -1,6 +1,5 @@
 import json
 import pandas as pd
-from pprint import pprint
 
 
 def reader(reader_csv="reader_results.csv"):

@@ -9,7 +9,7 @@ from haystack.nodes import DensePassageRetriever
 from retriever import prepare_data
 import datetime
 from pprint import pprint
-from milvus import IndexType
+from pymilvus import IndexType
 from utils import get_document_store
 
 
