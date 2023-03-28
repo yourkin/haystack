@@ -20,7 +20,7 @@ logger.setLevel(logging.INFO)
 def run_benchmarks(reader_configs: Path, retriever_configs: Path, save_markdown):
     results = {}
 
-    if reader_configs is not None:
+    if reader_configs:
         reader_results = {}
         for file in reader_configs.glob("**/*.yml"):
             logger.info("Running benchmark for %s", file.name)
@@ -35,7 +35,7 @@ def run_benchmarks(reader_configs: Path, retriever_configs: Path, save_markdown)
             with open("reader_results.md", "w") as f:
                 reader_df.to_markdown(f, index=False)
 
-    if retriever_configs is not None:
+    if retriever_configs:
         retriever_results = {}
         for file in retriever_configs.glob("**/*.yml"):
             logger.info("Running benchmark for %s", file.name)
