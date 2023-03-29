@@ -4,7 +4,7 @@ components:
   - name: DocumentStore
     type: FAISSDocumentStore
     params:
-      index_type: Flat
+      faiss_index_factory_str: Flat
   - name: Retriever
     type: DensePassageRetriever
     params:
