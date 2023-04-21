@@ -381,7 +381,7 @@ def get_predefined_prompt_templates() -> List[PromptTemplate]:
         PromptTemplate(
             name="question-answering-check",
             prompt_text="Does the following context contain the answer to the question? "
-            "Context: {documents}; Question: {query}; Please answer yes or no! Answer:",
+            "Context: {join(documents)}; Question: {query}; Please answer yes or no! Answer:",
             output_parser=AnswerParser(),
         ),
         PromptTemplate(
