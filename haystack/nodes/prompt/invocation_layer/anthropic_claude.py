@@ -203,7 +203,7 @@ class AnthropicClaudeInvocationLayer(PromptModelInvocationLayer):
         try:
             res = request_with_retry(
                 attempts=attempts,
-                status_codes=status_codes,
+                status_codes_to_retry=status_codes,
                 method="POST",
                 url="https://api.anthropic.com/v1/complete",
                 headers={"x-api-key": self.api_key, "Content-Type": "application/json"},

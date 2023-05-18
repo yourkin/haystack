@@ -159,7 +159,7 @@ class HFInferenceEndpointInvocationLayer(PromptModelInvocationLayer):
         try:
             response = request_with_retry(
                 method="POST",
-                status_codes=status_codes,
+                status_codes_to_retry=status_codes,
                 attempts=attempts,
                 url=self.url,
                 headers=self.headers,
