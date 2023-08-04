@@ -47,7 +47,7 @@ class CohereRanker(BaseRanker):
         api_key: str,
         model_name_or_path: str,
         top_k: int = 10,
-        max_chunks_per_doc: Optional[int] = None,
+        max_chunks_per_doc: Optional[int] = 10,
         embed_meta_fields: Optional[List[str]] = None,
     ):
         """
@@ -57,7 +57,7 @@ class CohereRanker(BaseRanker):
         :param model_name_or_path: Cohere model name. Check the list of supported models in the [Cohere documentation](https://docs.cohere.com/docs/models).
         :param top_k: The maximum number of documents to return.
         :param max_chunks_per_doc: If your document exceeds 512 tokens, this will determine the maximum number of
-            chunks a document can be split into. If None, the default of 10 is used.
+            chunks a document can be split into. The default is 10.
             For example, if your document is 6000 tokens, with the default of 10, the document will be split into 10
             chunks each of 512 tokens and the last 880 tokens will be disregarded.
         :param embed_meta_fields: Concatenate the provided meta fields and into the text passage that is then used in
