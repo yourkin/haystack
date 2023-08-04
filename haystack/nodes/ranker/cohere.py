@@ -23,13 +23,14 @@ RETRIES = int(os.environ.get(HAYSTACK_REMOTE_API_MAX_RETRIES, 5))
 
 class CohereRanker(BaseRanker):
     """
-    Re-Ranking can be used on top of a retriever to boost the performance for document search.
-    This is particularly useful if the retriever has a high recall but is bad in sorting the documents by relevance.
+    You can use re-ranking on top of a Retriever to boost the performance for document search.
+    This is particularly useful if the Retriever has a high recall but is bad in sorting the documents by relevance.
+    CohereRanker is a good choice if you're looking for a multilingual ranker.
 
-    Cohere models are trained with a context length of 510 tokens - the model takes into account both the input
-    from the query and document. If your query is larger than 256 tokens, it will be truncated to the first 256 tokens.
+    Cohere models are trained with a context length of 512 tokens - the model takes into account both the input
+    from the query and the document. If your query is larger than 256 tokens, it will be truncated to the first 256 tokens.
 
-    Cohere breaks down a query-document pair into 510 token chunks. For example, if your query is 50 tokens and your
+    Cohere breaks down a query-document pair into 512 token chunks. For example, if your query is 50 tokens and your
     document is 1024 tokens, your document will be broken into the following chunks:
     ```bash
     relevance_score_1 = <query[0,50], document[0,460]>
