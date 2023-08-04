@@ -33,6 +33,7 @@ import transformers
 from transformers import PretrainedConfig, PreTrainedModel
 from transformers import AutoModel, AutoConfig
 from transformers.modeling_utils import SequenceSummary
+from transformers import T5Model
 
 from haystack.errors import ModelingError
 from haystack.modeling.utils import silence_transformers_logs
@@ -336,6 +337,114 @@ class HFLanguageModel(LanguageModel):
             params["token_type_ids"] = segment_ids
         if attention_mask is not None:
             params["attention_mask"] = attention_mask
+        if output_hidden_states:
+            params["output_hidden_states"] = output_hidden_states  # type: ignore [assignment]
+        if output_attentions:
+            params["output_attentions"] = output_attentions  # type: ignore [assignment]
+
+        return self.model(**params, return_dict=return_dict)
+
+
+class HFLanguageModelEncoderDecoder(LanguageModel):
+    """
+    A model that wraps Hugging Face's implementation
+    (https://github.com/huggingface/transformers) to fit the LanguageModel class.
+    """
+
+    @silence_transformers_logs
+    def __init__(
+        self,
+        pretrained_model_name_or_path: Union[Path, str],
+        model_type: str,
+        language: Optional[str] = None,
+        n_added_tokens: int = None,
+        use_auth_token: Optional[Union[str, bool]] = None,
+        model_kwargs: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Load a pretrained model by supplying one of the following:
+
+        * The name of a remote model on s3 (for example, "bert-base-cased").
+        * A local path of a model trained using transformers (for example, "some_dir/huggingface_model").
+        * A local path of a model trained using Haystack (for example, "some_dir/haystack_model").
+
+        You can also use `get_language_model()` for a uniform interface across different model types.
+
+        :param pretrained_model_name_or_path: The path of the saved pretrained model or the name of the model.
+        :param model_type: the HuggingFace class name prefix (for example 'Bert', 'Roberta', etc...)
+        :param n_added_tokens: Not used.
+        :param language: the model's language ('multilingual' is also accepted)
+        :param use_auth_token: The API token used to download private models from Huggingface.
+                               If this parameter is set to `True`, then the token generated when running
+                               `transformers-cli login` (stored in ~/.huggingface) will be used.
+                               Additional information can be found here
+                               https://huggingface.co/transformers/main_classes/model.html#transformers.PreTrainedModel.from_pretrained
+        """
+        super().__init__(model_type=model_type)
+
+        config_class: PretrainedConfig = getattr(transformers, model_type + "Config", None)
+        model_class: PreTrainedModel = getattr(transformers, model_type + "Model", None)
+
+        haystack_lm_config = Path(pretrained_model_name_or_path) / "language_model_config.json"
+        if os.path.exists(haystack_lm_config):
+            # Haystack style
+            haystack_lm_model = Path(pretrained_model_name_or_path) / "language_model.bin"
+            model_config = config_class.from_pretrained(haystack_lm_config, use_auth_token=use_auth_token)
+            self.model = model_class.from_pretrained(
+                haystack_lm_model, config=model_config, use_auth_token=use_auth_token, **(model_kwargs or {})
+            )
+            self.language = self.model.config.language
+        else:
+            # Pytorch-transformer Style
+            self.model = model_class.from_pretrained(
+                str(pretrained_model_name_or_path), use_auth_token=use_auth_token, **(model_kwargs or {})
+            )
+            self.language = language or _guess_language(str(pretrained_model_name_or_path))
+
+    def forward(  # type: ignore [override]
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.FloatTensor] = None,
+        decoder_input_ids: Optional[torch.LongTensor] = None,
+        decoder_attention_mask: Optional[torch.BoolTensor] = None,
+        segment_ids: Optional[torch.Tensor] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: bool = False,
+    ):
+        """
+        Perform the forward pass of the model.
+
+        :param input_ids: The IDs of each token in the input sequence. It's a tensor of shape [batch_size, max_seq_len].
+        :param decoder_input_ids: (`torch.LongTensor` of shape `(batch_size, target_sequence_length)`
+            Indices of decoder input sequence tokens in the vocabulary.
+            [What are decoder input IDs?](../glossary#decoder-input-ids)
+        :param attention_mask: A mask that assigns 1 to valid input tokens and 0 to padding tokens
+           of shape [batch_size, max_seq_len]. Different models call this parameter differently (padding/attention mask).
+        :param decoder_attention_mask: (`torch.LongTensor` of shape `(batch_size, target_sequence_length)`
+            Default behavior: generate a tensor that ignores pad tokens in `decoder_input_ids`. Causal mask will also
+            be used by default.
+        :param segment_ids: Not used
+        :param output_hidden_states: When set to `True`, outputs hidden states in addition to the embeddings.
+        :param output_attentions: When set to `True`, outputs attentions in addition to the embeddings.
+        :param return_dict: Whether or not to return a [`~utils.ModelOutput`] instead of a plain tuple.
+        :return: Embeddings for each token in the input sequence. Can also return hidden states and attentions if specified using the arguments `output_hidden_states` and `output_attentions`.
+        """
+        params = {}
+        if input_ids is not None:
+            params["input_ids"] = input_ids
+        if decoder_input_ids is not None:
+            params["decoder_input_ids"] = decoder_input_ids
+        else:
+            # For T5ForQuestionAnswering the decoder_input_ids need to be automatically created from the input_ids
+            # if no decoder_input_ids are provided.
+            if isinstance(self.model, T5Model):
+                decoder_input_ids = self.model._shift_right(input_ids)
+                params["decoder_input_ids"] = decoder_input_ids
+        if attention_mask is not None:
+            params["attention_mask"] = attention_mask
+        if decoder_attention_mask is not None:
+            params["decoder_attention_mask"] = decoder_attention_mask
         if output_hidden_states:
             params["output_hidden_states"] = output_hidden_states  # type: ignore [assignment]
         if output_attentions:
@@ -734,6 +843,7 @@ class DPREncoder(LanguageModel):
 HUGGINGFACE_TO_HAYSTACK: Dict[str, Union[Type[HFLanguageModel], Type[DPREncoder]]] = {
     "Auto": HFLanguageModel,
     "Albert": HFLanguageModel,
+    "Bart": HFLanguageModelEncoderDecoder,
     "Bert": HFLanguageModel,
     "BigBird": HFLanguageModel,
     "Camembert": HFLanguageModel,
@@ -745,6 +855,7 @@ HUGGINGFACE_TO_HAYSTACK: Dict[str, Union[Type[HFLanguageModel], Type[DPREncoder]
     "Electra": HFLanguageModelWithPooler,
     "GloVe": HFLanguageModel,
     "MiniLM": HFLanguageModel,
+    "T5": HFLanguageModelEncoderDecoder,
     "Roberta": HFLanguageModel,
     "Umberto": HFLanguageModel,
     "Word2Vec": HFLanguageModel,
