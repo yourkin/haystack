@@ -135,7 +135,7 @@ class GPT35Generator:
         return default_from_dict(cls, data)
 
     @component.output_types(replies=List[str], metadata=List[Dict[str, Any]])
-    def run(self, prompt: str):
+    async def run(self, prompt: str):
         """
         Queries the LLM with the prompts to produce replies.
 
@@ -147,7 +147,7 @@ class GPT35Generator:
         else:
             chat = [message]
 
-        completion = openai.ChatCompletion.create(
+        completion = await openai.ChatCompletion.acreate(
             model=self.model_name,
             api_key=self.api_key,
             messages=[asdict(message) for message in chat],

@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Dict, List, Optional, Any
 
-import requests
+import httpx
 
 from haystack.preview import Document, component, default_from_dict, default_to_dict, ComponentError
 
@@ -66,7 +66,7 @@ class SerperDevWebSearch:
         return default_from_dict(cls, data)
 
     @component.output_types(documents=List[Document])
-    def run(self, query: str):
+    async def run(self, query: str):
         """
         Search the SerperDev API for the given query and return the results as a list of Documents.
 
@@ -81,12 +81,13 @@ class SerperDevWebSearch:
         headers = {"X-API-KEY": self.api_key, "Content-Type": "application/json"}
 
         try:
-            response = requests.post(SERPERDEV_BASE_URL, headers=headers, data=payload, timeout=30)
+            async with httpx.AsyncClient() as client:
+                response = client.post(SERPERDEV_BASE_URL, headers=headers, data=payload, timeout=30)
             response.raise_for_status()  # Will raise an HTTPError for bad responses
-        except requests.Timeout:
+        except httpx.TimeoutException:
             raise TimeoutError(f"Request to {self.__class__.__name__} timed out.")
 
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             raise SerperDevError(f"An error occurred while querying {self.__class__.__name__}. Error: {e}") from e
 
         # If we reached this point, it means the request was successful and we can proceed
