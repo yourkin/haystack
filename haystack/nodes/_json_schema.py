@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 import pydantic.schema
-from pydantic import BaseConfig, BaseSettings, Required, SecretStr, create_model
+from pydantic import BaseConfig, Required, SecretStr, create_model
 from pydantic.typing import ForwardRef, evaluate_forwardref, is_callable_type
 from pydantic.fields import ModelField
 from pydantic.schema import (
@@ -22,6 +22,7 @@ from pydantic.schema import (
 from haystack import __version__ as haystack_version
 from haystack.errors import PipelineSchemaError
 from haystack.nodes.base import BaseComponent
+from pydantic_settings import BaseSettings
 
 
 logger = logging.getLogger(__name__)

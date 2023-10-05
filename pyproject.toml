@@ -48,7 +48,8 @@ classifiers = [
 dependencies = [
   "requests",
   "httpx",
-  "pydantic<2",
+  "pydantic",
+  "pydantic-settings",
   "transformers==4.32.1",
   "pandas",
   "rank_bm25",
