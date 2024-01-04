@@ -1,7 +1,8 @@
 repo_name: yourkin/haystack
 report_id: aab3a62d216c0753fb63d18b767d74a8
+version: 0.1
 repo_type: Public
-timestamp: '2023-11-09T16:54:25+00:00'
+timestamp: '2024-01-04T15:08:36+00:00'
 requested_by: wochinge
 provider: github
 branch: main
@@ -16,6 +17,7 @@ tools:
   category: Languages & Frameworks
   sub_category: Languages
   image_url: https://img.stackshare.io/service/993/pUBY5pVj.png
+  detection_source_url: https://github.com/yourkin/haystack
   detection_source: Repo Metadata
 - name: Datadog
   description: Unify logs, metrics, and traces from across your distributed infrastructure.
@@ -25,6 +27,7 @@ tools:
   category: Monitoring
   sub_category: Performance Monitoring
   image_url: https://img.stackshare.io/service/669/default_34b3b9b42d07c33ac47ecdff75dd6f4f82aa70ee.jpg
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/test/benchmarks/datadog/requirements.txt
   detection_source: test/benchmarks/datadog/requirements.txt
   last_updated_by: bogdankostic
   last_updated_on: 2023-08-03 08:09:00.000000000 Z
@@ -36,6 +39,7 @@ tools:
   category: Build, Test, Deploy
   sub_category: Version Control System
   image_url: https://img.stackshare.io/service/1046/git.png
+  detection_source_url: https://github.com/yourkin/haystack
   detection_source: Repo Metadata
 - name: GitHub Actions
   description: Automate your workflow from idea to production
@@ -45,7 +49,8 @@ tools:
   category: Build, Test, Deploy
   sub_category: Continuous Integration
   image_url: https://img.stackshare.io/service/11563/actions.png
-  detection_source: ".github/workflows/xpdf_release.yml"
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/.github/workflows/benchmarks.yml
+  detection_source: ".github/workflows/benchmarks.yml"
   last_updated_by: dependabot[bot]
   last_updated_on: 2023-10-04 15:20:17.000000000 Z
 - name: Haystack
@@ -57,6 +62,7 @@ tools:
   category: Build, Test, Deploy
   sub_category: Programming & Code Analytics
   image_url: https://img.stackshare.io/service/12241/default_f2a9f7233077069f3f29353101416fb0c5ad0c3d.jpg
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/docker-compose.yml
   detection_source: docker-compose.yml
   last_updated_by: Bilge Yücel
   last_updated_on: 2023-01-11 12:35:46.000000000 Z
@@ -68,6 +74,7 @@ tools:
   category: Build, Test, Deploy
   sub_category: Hosted Package Repository
   image_url: https://img.stackshare.io/service/12572/-RIWgodF_400x400.jpg
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/rest_api/pyproject.toml
   detection_source: rest_api/pyproject.toml
   last_updated_by: Massimiliano Pippi
   last_updated_on: 2022-09-05 14:58:43.000000000 Z
@@ -79,120 +86,130 @@ tools:
   category: Application Utilities
   sub_category: Search as a Service
   image_url: https://img.stackshare.io/service/841/Image_2019-05-20_at_4.58.04_PM.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/docker-compose.yml
   detection_source: docker-compose.yml
   last_updated_by: Bilge Yücel
   last_updated_on: 2023-01-03 08:49:12.000000000 Z
 - name: Pillow
   description: Python Imaging Library
-  package_url: https://pypi.org/Pillow
+  package_url: https://pypi.org/project/Pillow
   license: HPND
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19844/default_accee5d2b8ed75c2245f13504daf75b1cbc8cc9f.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Christian Clauss
   last_updated_on: 2023-09-13 13:18:16.000000000 Z
 - name: fastapi
   description: FastAPI framework
-  package_url: https://pypi.org/fastapi
+  package_url: https://pypi.org/project/fastapi
   license: MIT
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/20520/default_ded6d17aa418fbd05ff28b85345c77ab878c6b37.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/rest_api/pyproject.toml
   detection_source: rest_api/pyproject.toml
   last_updated_by: Massimiliano Pippi
   last_updated_on: 2022-09-05 14:58:43.000000000 Z
 - name: httpx
   description: The next generation HTTP client
-  package_url: https://pypi.org/httpx
+  package_url: https://pypi.org/project/httpx
   license: BSD-3-Clause
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/20315/default_5f4e928dbcb1c4db4050881fc2e0229785fc931c.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Massimiliano Pippi
   last_updated_on: 2023-10-03 08:42:21.000000000 Z
 - name: jsonschema
   description: An implementation of JSON Schema validation for Python
-  package_url: https://pypi.org/jsonschema
+  package_url: https://pypi.org/project/jsonschema
   license: MIT
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19854/default_3fbfa1d88b4408e903227ac391490e8efb8dea58.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Ofek Lev
   last_updated_on: 2022-08-24 07:46:21.000000000 Z
 - name: networkx
   description: Python package for creating and manipulating graphs and networks
-  package_url: https://pypi.org/networkx
+  package_url: https://pypi.org/project/networkx
   license: BSD-3-Clause
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19877/default_8902c10687fbcd6273bdbe119fff40fa1180763f.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Tuana Çelik
   last_updated_on: 2023-08-30 13:29:12.000000000 Z
 - name: pandas
   description: Powerful data structures for data analysis
-  package_url: https://pypi.org/pandas
+  package_url: https://pypi.org/project/pandas
   license: BSD-3-Clause
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19837/default_85689b353a3a9409328e253ea28d859d29151e0c.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: ZanSara
   last_updated_on: 2023-09-26 10:48:15.000000000 Z
 - name: psutil
   description: Cross-platform lib for process and system monitoring in Python
-  package_url: https://pypi.org/psutil
+  package_url: https://pypi.org/project/psutil
   license: BSD-3-Clause
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19851/default_ac77a75c05474acf9389d56b1f5cc8241af4c384.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/rest_api/pyproject.toml
   detection_source: rest_api/pyproject.toml
   last_updated_by: Daniel Bichuetti
   last_updated_on: 2022-09-08 16:24:16.000000000 Z
 - name: pydantic
   description: Data validation and settings management using python 3.6 type hinting
-  package_url: https://pypi.org/pydantic
+  package_url: https://pypi.org/project/pydantic
   license: MIT
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/20022/default_b0d1a54f127d7017fce41c15f5e85568fb7019ed.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Massimiliano Pippi
   last_updated_on: 2023-06-30 17:44:08.000000000 Z
 - name: requests
   description: Python HTTP for Humans
-  package_url: https://pypi.org/requests
+  package_url: https://pypi.org/project/requests
   license: Apache-2.0
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19826/default_d7c684bf2673f008a9f02ac93901229297a22d7e.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Stefano Fiorucci
   last_updated_on: 2023-09-26 15:12:59.000000000 Z
 - name: requests-cache
   description: Persistent cache for requests library
-  package_url: https://pypi.org/requests-cache
+  package_url: https://pypi.org/project/requests-cache
   version: 1.0.0
   license: BSD-2-Clause
   open_source: true
@@ -200,13 +217,13 @@ tools:
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/20192/default_69a8cf3991a6d44dabe809e648b8446c51803227.png
-  detection_source_url: pyproject.toml
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Stefano Fiorucci
   last_updated_on: 2023-09-26 15:12:59.000000000 Z
 - name: scikit-learn
   description: A set of python modules for machine learning and data mining
-  package_url: https://pypi.org/scikit-learn
+  package_url: https://pypi.org/project/scikit-learn
   version: 1.3.0
   license: BSD-3-Clause
   open_source: true
@@ -214,31 +231,33 @@ tools:
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19898/default_4343f8bba4f6051641ffca8b4fbe9b099402c84d.png
-  detection_source_url: pyproject.toml
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: Christian Clauss
   last_updated_on: 2023-09-13 14:14:45.000000000 Z
 - name: tenacity
   description: Retry code until it succeeds
-  package_url: https://pypi.org/tenacity
+  package_url: https://pypi.org/project/tenacity
   license: Apache-2.0
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/20027/default_fd02050783f95269bfcc5c4d11f1c75dd423cd1d.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: ZanSara
   last_updated_on: 2023-09-26 10:48:15.000000000 Z
 - name: tqdm
   description: Fast, Extensible Progress Meter
-  package_url: https://pypi.org/tqdm
+  package_url: https://pypi.org/project/tqdm
   license: MPL-2.0,MIT
   open_source: true
   hosted_saas: false
   category: Libraries
   sub_category: PyPI Packages
   image_url: https://img.stackshare.io/package/19846/default_accee5d2b8ed75c2245f13504daf75b1cbc8cc9f.png
+  detection_source_url: https://github.com/yourkin/haystack/blob/main/pyproject.toml
   detection_source: pyproject.toml
   last_updated_by: ZanSara
   last_updated_on: 2023-09-26 10:48:15.000000000 Z
